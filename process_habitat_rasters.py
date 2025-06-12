@@ -318,7 +318,7 @@ def apply_thresholds_to_discard_intersection_areas(intersections):
 
     return intersections
 
-# --- -----
+# --- Binning the raster values -----------------------------------------------
 def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, PA_gpkg_layer_name, bins, dict_of_polygon_GDFs, adm0_list):
 
     # Load the raster and re-project if necessary.
@@ -513,7 +513,9 @@ def load_protected_areas_for_raster_clipping(path_PA_gpkg,
     print('Preparing protected areas mask, to use in clipping')
     # Load the protected areas (only for the countries that the raster
     # intersects).
-    gdf_PAs = load_filtered_gdf(path_PA_gpkg, PA_gpkg_layer_name, adm0_list)
+    filter_field = 'iso3'
+    gdf_PAs = load_gpkg_filtered_by_list_as_gdf(path_PA_gpkg,
+                            PA_gpkg_layer_name, filter_field, adm0_list)
     
     # Dissolve the protected areas into a single multipolygon.
     # This discards information about the protected areas, but should
@@ -678,7 +680,8 @@ def prepare_PA_masked_raster_and_metadata(polygons_GDF, i, raster_data,
 
     return raster_data, raster_data_masked, polygon_name, polygon_id
 
-def load_filtered_gdf(gpkg_path, layer_name, iso3_list):
+def load_gpkg_filtered_by_list_as_gdf(gpkg_path, layer_name, filter_field,
+                                      allowed_list):
     """
     Load features from a GeoPackage filtered by ISO3 codes.
 
@@ -690,9 +693,12 @@ def load_filtered_gdf(gpkg_path, layer_name, iso3_list):
     Returns:
         geopandas.GeoDataFrame: Filtered GeoDataFrame.
     """
-    iso3_str = ", ".join(f"'{code}'" for code in iso3_list)
-    sql = f"SELECT * FROM {layer_name} WHERE ISO3 IN ({iso3_str})"
+
+    list_str = ", ".join(f"'{val}'" for val in allowed_list)
+    sql = f"SELECT * FROM {layer_name} WHERE {filter_field} IN ({list_str})"
+
     print('Loading from {:}\nwith query {:}'.format(gpkg_path, sql))
+
     return gpd.read_file(gpkg_path, sql=sql)
 
 def clip_raster_to_polygon_and_apply_PA_mask(
@@ -976,8 +982,11 @@ def main():
 
     # Define file path for (vector) country polygons
     # (also known as admin level 0 boundaries).
-    path_adm0 = os.path.join(dir_data, 'vector', 'admin_boundaries',
-                             'geoBoundaries', 'geoBoundariesCGAZ_ADM0.gpkg')
+    dir_geoBoundaries = os.path.join(dir_data, 'vector', 'admin_boundaries',
+                             'geoBoundaries')
+    path_adm0 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM0.gpkg')
+    path_adm1 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM1.gpkg')
+    layer_name_adm1 = 'globalADM1'
     #print("Loading admin boundary file {:}".format(path_adm0))
     #gdf_adm0 = gpd.read_file(path_adm0)
 
@@ -992,10 +1001,21 @@ def main():
     name_raster = 'glm_pangosnewroads_seed333_1_1.tif'
     path_raster = os.path.join(dir_data, 'raster', 'habitat_suitability', name_raster)
 
-    # Summarize the raster and determine which polygons it intersects with.
+    # Summarize the raster and determine which country polygons
+    # it intersects with.
     intersections_adm0, list_of_adm0 = \
             find_which_polygons_intersect_raster_wrapper(
                             path_adm0, path_raster)
+    
+    # Load admin-1 boundaries, but only those that are for countries which
+    # intersect the raster.
+    filter_field = 'adm0_iso3'
+    gdf_adm1 = load_gpkg_filtered_by_list_as_gdf(path_adm1,
+                            layer_name_adm1, filter_field, list_of_adm0)
+
+    print(gdf_adm1)
+    import sys
+    sys.exit()
 
     # Bin the raster values into discrete ranges.
     bins = [0.0, 0.25, 0.50, 0.75, 1.0]
