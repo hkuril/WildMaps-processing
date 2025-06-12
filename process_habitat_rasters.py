@@ -3,6 +3,7 @@ import os
 from typing import List
 import warnings
 
+import fiona
 import geopandas as gpd
 import numpy as np
 import pandas as pd
@@ -75,7 +76,7 @@ def summarize_raster(src, data):
     return summary
 
 # --- Determine polygon intersections with the raster -------------------------
-def find_which_polygons_intersect_raster_wrapper(path_adm0, path_raster):
+def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_raster):
     
     # Load the country outlines (admin-0 boundaries).
     print("Loading adm-0 file {:}".format(path_adm0))
@@ -94,15 +95,34 @@ def find_which_polygons_intersect_raster_wrapper(path_adm0, path_raster):
                                             gdf_adm0,
                                             raster_data, raster_src,
                                             cols_to_keep,
-                                            region_name_with_plural)
+                                            region_name_with_plural,
+                                            id_field = 'iso3')
 
     # Get a list of the ISO codes of the countries intersected.
     list_of_adm0 = list(intersections_adm0['iso3'].unique())
 
-    return intersections_adm0, list_of_adm0
+    # Load admin-1 boundaries, but only those that are for countries which
+    # intersect the raster.
+    filter_field = 'adm0_iso3'
+    gdf_adm1 = load_gpkg_filtered_by_list_as_gdf(path_adm1,
+                            filter_field, list_of_adm0)
+    print('')
+
+    # Determine which countries the raster intersects with.
+    cols_to_keep = ['name', 'adm0_iso3', 'adm1_code']
+    region_name_with_plural = ['adm1 zone', 'adm1 zones']
+    intersections_adm1 = find_which_polygons_intersect_raster(
+                                            gdf_adm1,
+                                            raster_data, raster_src,
+                                            cols_to_keep,
+                                            region_name_with_plural,
+                                            id_field = 'adm1_code')
+
+    return intersections_adm0, list_of_adm0, intersections_adm1
 
 def find_which_polygons_intersect_raster(polygons, raster_data, raster_src,
-                                         cols_to_keep, region_name_with_plural):
+                                         cols_to_keep, region_name_with_plural,
+                                         id_field = 'iso3'):
 
     print(80 * '-')
     print("Finding which {:} intersect with the raster.".format(
@@ -138,7 +158,8 @@ def find_which_polygons_intersect_raster(polygons, raster_data, raster_src,
 
     # Print summary.
     print_intersection_area_summary(raster_total_area_km2, intersections,
-                                    region_name_with_plural)
+                                    region_name_with_plural,
+                                    id_field = id_field)
 
     # Discard minor intersections.
     intersections = intersections[~intersections['discard']]
@@ -207,7 +228,10 @@ def find_intersection_between_one_polygon_and_raster(polygon, raster_geom, cols_
 
         else:
 
-            assert isinstance(intersection, MultiPolygon)
+            assert  isinstance(intersection, MultiPolygon) or \
+                    isinstance(intersection, Polygon), \
+                    'Expected a Polygon or MultiPolygon shapely geometry, '\
+                    'but instead got {:}'.format(type(intersection))
 
         # Store the intersection in a list.
         data_to_store = {
@@ -280,7 +304,8 @@ def get_intersection_area_summary_values(raster_geom, intersections):
     return raster_total_area_km2, intersections
 
 def print_intersection_area_summary(raster_total_area_km2, intersections,
-                                    region_name_with_plural):
+                                    region_name_with_plural, id_field = 'iso3',
+                                    name_field = 'name'):
 
     print('The area covered by the raster (not including null pixels) is: {:,.1f} km2'.format(raster_total_area_km2))
     if len(intersections) == 1:
@@ -289,8 +314,8 @@ def print_intersection_area_summary(raster_total_area_km2, intersections,
         region_str = region_name_with_plural[1]
     print('The raster intersects with {:d} {:}:'.format(len(intersections), region_str))
     region_str = region_name_with_plural[0]
-    row_fmt = '{:5} {:20} {:>20,.1f} {:>20,.1f} {:>15,.4f} {:>15,.4f} {:>7}'
-    row_header_fmt = '{:5} {:20} {:>20} {:>20} {:>15} {:>15} {:>7}'
+    row_fmt = '{:7} {:20} {:>20,.1f} {:>20,.1f} {:>15,.4f} {:>15,.4f} {:>7}'
+    row_header_fmt = '{:7} {:20} {:>20} {:>20} {:>15} {:>15} {:>7}'
     print(row_header_fmt.format('iso3', region_str, 'intersection (km2)', '{:} area (km2)'.format(region_str), '% of {:}'.format(region_str), '% of raster', 'discard'))
     for _, intersection in intersections.iterrows():
         
@@ -298,7 +323,7 @@ def print_intersection_area_summary(raster_total_area_km2, intersections,
             discard_str = 'yes'
         else:
             discard_str = 'no'
-        print(row_fmt.format(intersection['iso3'], intersection['name'],
+        print(row_fmt.format(intersection[id_field], intersection[name_field][:20],
                 intersection['area_of_intersection_km2'],
                 intersection['area_of_original_poly_km2'],
                 intersection['frac_of_original_poly'] * 100.0,
@@ -319,7 +344,7 @@ def apply_thresholds_to_discard_intersection_areas(intersections):
     return intersections
 
 # --- Binning the raster values -----------------------------------------------
-def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, PA_gpkg_layer_name, bins, dict_of_polygon_GDFs, adm0_list):
+def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins, dict_of_polygon_GDFs, adm0_list, polygon_id_field_dict):
 
     # Load the raster and re-project if necessary.
     with rasterio.open(path_raster) as raster_src:
@@ -361,8 +386,11 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, PA_gpkg_layer_n
     # Load the protected areas for the countries which intersect the
     # raster. The protected areas are dissolved into a single multipolygon
     # geometry, and projected to match the raster CRS.
+    # !!! This could be made more efficient: Pre-process with a spatial
+    # join to assign each protected area with adm1 zone(s). Then we only
+    # need to load the PAs matching adm1.
     PA_mask = load_protected_areas_for_raster_clipping(path_PA_gpkg,
-                        PA_gpkg_layer_name, adm0_list, crs,
+                        adm0_list, crs,
                         (raster_src.height, raster_src.width),
                         raster_src.transform)
 
@@ -388,6 +416,7 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, PA_gpkg_layer_n
                 bin_raster_for_one_polygon_group(
                             raster_src, raster_data,
                             bins, PA_mask,
+                            polygon_id_field_dict[polygons_name],
                             polygons_GDF = polygons_GDF,
                             polygons_name = polygons_name)
 
@@ -506,7 +535,7 @@ def reproject_raster(raster_data, height, width, raster_src, transform, dst_crs)
     return raster_data
 
 def load_protected_areas_for_raster_clipping(path_PA_gpkg,
-                        PA_gpkg_layer_name, adm0_list, raster_crs,
+                        adm0_list, raster_crs,
                         raster_shape, raster_transform):
     
     print('\n' + 80 * '-')
@@ -515,7 +544,7 @@ def load_protected_areas_for_raster_clipping(path_PA_gpkg,
     # intersects).
     filter_field = 'iso3'
     gdf_PAs = load_gpkg_filtered_by_list_as_gdf(path_PA_gpkg,
-                            PA_gpkg_layer_name, filter_field, adm0_list)
+                            filter_field, adm0_list)
     
     # Dissolve the protected areas into a single multipolygon.
     # This discards information about the protected areas, but should
@@ -584,7 +613,7 @@ def calculate_pixel_size_and_counts(profile, raster_data, verbose = True):
     return raster_info_dict
 
 def bin_raster_for_one_polygon_group(raster_src, raster_data, bins,
-                PA_mask, polygons_name = 'whole', polygons_GDF = None):
+                PA_mask, polygon_id_field, polygons_name = 'whole', polygons_GDF = None):
     
     print('\n' + 80 * '-')
     print('Binning raster for polygons list: {:}'.format(polygons_name))
@@ -602,7 +631,8 @@ def bin_raster_for_one_polygon_group(raster_src, raster_data, bins,
         # Do binning for one polygon.
         polygon_id, areas_km2_by_bin_array = \
                 bin_raster_for_one_polygon(polygons_GDF, i, raster_data,
-                                   raster_src, PA_mask, bins, n_polys)
+                                   raster_src, PA_mask, bins, n_polys,
+                                   polygon_id_field)
 
         # Store array for this polygon in dictionary.
         areas_by_bin_for_each_polygon[polygon_id] = areas_km2_by_bin_array
@@ -610,12 +640,13 @@ def bin_raster_for_one_polygon_group(raster_src, raster_data, bins,
     return areas_by_bin_for_each_polygon
 
 def bin_raster_for_one_polygon(polygons_GDF, i, raster_data, raster_src,
-                               PA_mask, bins, n_polys):
+                               PA_mask, bins, n_polys, polygon_id_field):
 
     # Apply the protected areas mask and get polygon name and ID.
     raster_data, raster_data_PA, polygon_name, polygon_id =\
         prepare_PA_masked_raster_and_metadata(polygons_GDF, i, raster_data,
-                                          raster_src, PA_mask)
+                                            raster_src, PA_mask,
+                                            polygon_id_field)
         
     # Get pixel size and counts for the current raster (after clipping).
     pxl_info = calculate_pixel_size_and_counts(raster_src.profile,
@@ -649,7 +680,7 @@ def bin_raster_for_one_polygon(polygons_GDF, i, raster_data, raster_src,
     return polygon_id, areas_km2_by_bin_array
 
 def prepare_PA_masked_raster_and_metadata(polygons_GDF, i, raster_data,
-                                          raster_src, PA_mask):
+                                          raster_src, PA_mask, polygon_id_field):
 
     # Case 1: A list of polygons has been provided.
     if polygons_GDF is not None:
@@ -658,7 +689,7 @@ def prepare_PA_masked_raster_and_metadata(polygons_GDF, i, raster_data,
         polygon = polygons_GDF.iloc[i]
         #
         polygon_name = polygon['name']
-        polygon_id = polygon['iso3']
+        polygon_id = polygon[polygon_id_field]
         polygon_geom = polygon['geometry']
         #
 
@@ -680,8 +711,8 @@ def prepare_PA_masked_raster_and_metadata(polygons_GDF, i, raster_data,
 
     return raster_data, raster_data_masked, polygon_name, polygon_id
 
-def load_gpkg_filtered_by_list_as_gdf(gpkg_path, layer_name, filter_field,
-                                      allowed_list):
+def load_gpkg_filtered_by_list_as_gdf(gpkg_path, filter_field,
+                                      allowed_list, layer_name = None):
     """
     Load features from a GeoPackage filtered by ISO3 codes.
 
@@ -693,6 +724,12 @@ def load_gpkg_filtered_by_list_as_gdf(gpkg_path, layer_name, filter_field,
     Returns:
         geopandas.GeoDataFrame: Filtered GeoDataFrame.
     """
+
+    if layer_name is None:
+
+        layers = fiona.listlayers(gpkg_path)
+        assert len(layers) == 1, 'If you don’t specify a layer name, the geopackage file must have only one layer'
+        layer_name = layers[0]
 
     list_str = ", ".join(f"'{val}'" for val in allowed_list)
     sql = f"SELECT * FROM {layer_name} WHERE {filter_field} IN ({list_str})"
@@ -986,7 +1023,7 @@ def main():
                              'geoBoundaries')
     path_adm0 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM0.gpkg')
     path_adm1 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM1.gpkg')
-    layer_name_adm1 = 'globalADM1'
+    #layer_name_adm1 = 'globalADM1'
     #print("Loading admin boundary file {:}".format(path_adm0))
     #gdf_adm0 = gpd.read_file(path_adm0)
 
@@ -995,7 +1032,7 @@ def main():
                             dir_data, 'vector', 'protected_areas', 'WDPA',
                             'WDPA_Jun2025_Public-polygons.gpkg')
                     #'MYS', 'MY-12', 'Management_Units_(PAs-FRs).shp')
-    PA_gpkg_layer_name = 'wdpa_polygons'
+    #PA_gpkg_layer_name = 'wdpa_polygons'
 
     # Load the (raster) habitat suitability data.
     name_raster = 'glm_pangosnewroads_seed333_1_1.tif'
@@ -1003,32 +1040,26 @@ def main():
 
     # Summarize the raster and determine which country polygons
     # it intersects with.
-    intersections_adm0, list_of_adm0 = \
+    intersections_adm0, list_of_adm0, intersections_adm1 = \
             find_which_polygons_intersect_raster_wrapper(
-                            path_adm0, path_raster)
+                            path_adm0, path_adm1, path_raster)
     
-    # Load admin-1 boundaries, but only those that are for countries which
-    # intersect the raster.
-    filter_field = 'adm0_iso3'
-    gdf_adm1 = load_gpkg_filtered_by_list_as_gdf(path_adm1,
-                            layer_name_adm1, filter_field, list_of_adm0)
-
-    print(gdf_adm1)
-    import sys
-    sys.exit()
-
     # Bin the raster values into discrete ranges.
     bins = [0.0, 0.25, 0.50, 0.75, 1.0]
     results = dict()
     dict_of_polygon_GDFs = {'whole'     : None,
-                            'country'   : intersections_adm0,}
+                            'country'   : intersections_adm0,
+                            'adm1-zone' : intersections_adm1}
+    polygon_id_field_dict = {'whole'    : None,
+                             'country'  : 'iso3',
+                             'adm1-zone': 'adm1_code'}
     results = bin_raster_for_all_polygon_groups(
                                     path_raster,
                                     path_PA_gpkg,
-                                    PA_gpkg_layer_name,
                                     bins,
                                     dict_of_polygon_GDFs,
-                                    list_of_adm0)
+                                    list_of_adm0,
+                                    polygon_id_field_dict)
 
     return   
 
