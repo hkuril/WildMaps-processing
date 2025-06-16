@@ -1092,7 +1092,6 @@ def main():
         load_results_and_catalog_and_remove_results_no_longer_in_catalog(
                 dir_output, dir_data)
     log.info(catalog)
-    log.info(results)
 
     import sys
     sys.exit()
