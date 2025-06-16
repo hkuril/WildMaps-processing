@@ -74,7 +74,7 @@ def summarize_raster(src, data):
     summary = {
         'projection': str(projection),
         'dimensions (rows, cols)': dimensions,
-        'bounds': bounds,
+        'bounds': list(bounds),
         'fraction_null': null_fraction,
         'min': min_val,
         'max': max_val,
@@ -84,8 +84,8 @@ def summarize_raster(src, data):
     
     log.info("Basic properties of the raster file:")
     for k, v in summary.items():
-        log.info("{:30} : {:50}".format(k, str(v)))
-    log.info('')
+        log.info("{:30} : {:50}".format(k, str(v)), show_timestamp = False)
+    log.info('', show_timestamp = False)
 
     return summary
 
@@ -93,6 +93,7 @@ def load_dataset_catalog(path_catalog):
     
     log.info('Loading catalog from {:}'.format(path_catalog))
     catalog = pd.read_csv(path_catalog)
+    catalog.set_index('key', inplace = True)
 
     return catalog 
 
@@ -109,7 +110,7 @@ def load_results(path_results):
     # Log the previous results. 
     log.info('Existing results:', to_console = False)
     log.info(json.dumps(results, indent=4, cls = custom_JSON_encoder),
-                                to_console = False)
+                                to_console = False, show_timestamp = False)
 
     return results
 
@@ -129,7 +130,7 @@ def load_results_and_catalog_and_remove_results_no_longer_in_catalog(
     results_updated = {}
     for k, v in results.items():
 
-        if k in list(catalog['key']):
+        if k in catalog.index:
 
             results_updated[k] = v
 
@@ -164,27 +165,31 @@ class custom_JSON_encoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
-        #if isinstance(obj, (np.integer, np.floating)):
-        #    return obj.item()
+        if isinstance(obj, (np.integer, np.floating)):
+            return obj.item()
         return super().default(obj)
 
 # --- Determine polygon intersections with the raster -------------------------
-def find_intersections_and_do_binning_for_one_raster(dir_data, path_adm0, path_adm1, path_PA_gpkg, raster_file_name):
+def find_intersections_and_do_binning_for_one_raster(dir_data, path_adm0,
+        path_adm1, path_PA_gpkg, raster_subfolder, raster_file_name,
+        raster_band, scale_factor):
+
+    results = dict()
 
     # Load the (raster) habitat suitability data.
     #name_raster = 'glm_pangosnewroads_seed333_1_1.tif'
-    path_raster = os.path.join(dir_data, 'raster', 'habitat_suitability',
-                               raster_file_name)
+    path_raster = os.path.join(dir_data, 'raster', 'SDM',
+                               raster_subfolder, raster_file_name)
 
     # Summarize the raster and determine which country polygons
     # it intersects with.
-    intersections_adm0, list_of_adm0, intersections_adm1, list_of_adm1 = \
+    intersections_adm0, list_of_adm0, intersections_adm1, list_of_adm1,\
+            raster_summary = \
             find_which_polygons_intersect_raster_wrapper(
-                            path_adm0, path_adm1, path_raster)
+                            path_adm0, path_adm1, path_raster, raster_band)
     
     # Bin the raster values into discrete ranges.
     bins = [0.0, 0.25, 0.50, 0.75, 1.0]
-    results = dict()
     dict_of_polygon_GDFs = {'whole'     : None,
                             'country'   : intersections_adm0,
                             'adm1-zone' : intersections_adm1}
@@ -197,14 +202,17 @@ def find_intersections_and_do_binning_for_one_raster(dir_data, path_adm0, path_a
                                     bins,
                                     dict_of_polygon_GDFs,
                                     list_of_adm0,
-                                    polygon_id_field_dict)
+                                    polygon_id_field_dict,
+                                    raster_band,
+                                    scale_factor)
 
     results['adm0_list'] = list_of_adm0
     results['adm1_list'] = list_of_adm1
+    results['raster_summary'] = raster_summary
 
     return results
 
-def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_raster):
+def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_raster, raster_band):
     
     # Load the country outlines (admin-0 boundaries).
     log.info("Loading adm-0 file {:}".format(path_adm0))
@@ -213,8 +221,8 @@ def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_rast
     # Load the raster, read the first band (with masking), and print summary.
     log.info("Loading raster file {:}".format(path_raster))
     raster_src = rasterio.open(path_raster)
-    raster_data = raster_src.read(1, masked=True)
-    summarize_raster(raster_src, raster_data)
+    raster_data = raster_src.read(raster_band, masked=True)
+    raster_summary = summarize_raster(raster_src, raster_data)
 
     # Determine which countries the raster intersects with.
     cols_to_keep = ['name', 'iso3']
@@ -234,7 +242,7 @@ def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_rast
     filter_field = 'adm0_iso3'
     gdf_adm1 = load_gpkg_filtered_by_list_as_gdf(path_adm1,
                             filter_field, list_of_adm0)
-    log.info('')
+    log.info('', show_timestamp = False)
 
     # Determine which admin-1 areas the raster intersects with.
     cols_to_keep = ['name', 'adm0_iso3', 'adm1_code']
@@ -250,13 +258,14 @@ def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_rast
     list_of_adm1 = sorted(list(intersections_adm1['adm1_code'].unique()))
 
     return  intersections_adm0, list_of_adm0,\
-            intersections_adm1, list_of_adm1
+            intersections_adm1, list_of_adm1, \
+            raster_summary
 
 def find_which_polygons_intersect_raster(polygons, raster_data, raster_src,
                                          cols_to_keep, region_name_with_plural,
                                          id_field = 'iso3'):
 
-    log.info(80 * '-')
+    log.info(80 * '-', show_timestamp = False)
     log.info("Finding which {:} intersect with the raster.".format(
         region_name_with_plural[1]))
 
@@ -448,7 +457,7 @@ def print_intersection_area_summary(raster_total_area_km2, intersections,
     region_str = region_name_with_plural[0]
     row_fmt = '{:7} {:20} {:>20,.1f} {:>20,.1f} {:>15,.4f} {:>15,.4f} {:>7}'
     row_header_fmt = '{:7} {:20} {:>20} {:>20} {:>15} {:>15} {:>7}'
-    log.info(row_header_fmt.format('iso3', region_str, 'intersection (km2)', '{:} area (km2)'.format(region_str), '% of {:}'.format(region_str), '% of raster', 'discard'))
+    log.info(row_header_fmt.format('iso3', region_str, 'intersection (km2)', '{:} area (km2)'.format(region_str), '% of {:}'.format(region_str), '% of raster', 'discard'), show_timestamp = False)
     for _, intersection in intersections.iterrows():
         
         if intersection['discard']:
@@ -461,7 +470,8 @@ def print_intersection_area_summary(raster_total_area_km2, intersections,
                 intersection['frac_of_original_poly'] * 100.0,
                 intersection['frac_of_raster'] * 100.0,
                 discard_str,
-                             ))
+                ),
+                show_timestamp = False)
 
     return
 
@@ -476,7 +486,9 @@ def apply_thresholds_to_discard_intersection_areas(intersections):
     return intersections
 
 # --- Binning the raster values -----------------------------------------------
-def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins, dict_of_polygon_GDFs, adm0_list, polygon_id_field_dict):
+def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins,
+    dict_of_polygon_GDFs, adm0_list, polygon_id_field_dict,
+    raster_band, scale_factor):
 
     # Load the raster and re-project if necessary.
     with rasterio.open(path_raster) as raster_src:
@@ -484,7 +496,7 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins, dict_of_p
         # Unpack raster information.
         profile = raster_src.profile
         crs = raster_src.crs
-        raster_data = raster_src.read(1, masked=True)
+        raster_data = raster_src.read(raster_band, masked = True)
 
         # The raster must be in a projected coordinate system (coordinates
         # with units of length, such as metres, as opposed to a geographic
@@ -531,7 +543,8 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins, dict_of_p
     # Give a warning if the bins do not encompass the full range of
     # values in the raster.
     min_bin, max_bin = bins[0], bins[-1]
-    if raster_data.min() < min_bin or raster_data.max() > max_bin:
+    if  ((raster_data.min() / scale_factor) < min_bin) or\
+        ((raster_data.max() / scale_factor) > max_bin):
         warnings.warn("Some raster values fall outside the defined bins.")
     # Prepare output dictionary.
     results_for_all_polygon_groups__dict = dict()
@@ -547,6 +560,7 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins, dict_of_p
         results_for_all_polygon_groups__dict[polygons_name] =\
                 bin_raster_for_one_polygon_group(
                             raster_src, raster_data,
+                            scale_factor,
                             bins, PA_mask,
                             polygon_id_field_dict[polygons_name],
                             polygons_GDF = polygons_GDF,
@@ -563,7 +577,7 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins, dict_of_p
 
 def reproject_raster_wrapper(raster_data, raster_src, profile):
     
-    log.info('\n' + 80 * '-')
+    log.info('\n' + 80 * '-', show_timestamp = False)
 
     # Based on the geographical location of the raster, we 
     # define a suitable projected coordinate system.
@@ -685,12 +699,6 @@ def generate_raster_profile_from_crs(dst_crs, raster_src, raster_profile):
 def reproject_raster(raster_data, height, width, raster_src, transform, dst_crs):
 
     reprojected = np.empty((height, width), dtype=raster_data.dtype)
-    #for x in [raster_data, reprojected, raster_src.transform, raster_src.crs, transform, dst_crs]:
-    #    print(x)
-
-    #print(raster_data)
-    #print(raster_data.mask)
-    #print(raster_data.fill_value)
 
     # Reproject doesn’t handle masked arrays, so fill in the nodata values.
     src_nodata = raster_data.fill_value
@@ -722,7 +730,7 @@ def load_protected_areas_for_raster_clipping(path_PA_gpkg,
                         adm0_list, raster_crs,
                         raster_shape, raster_transform):
     
-    log.info('\n' + 80 * '-')
+    log.info('\n' + 80 * '-', show_timestamp = False)
     log.info('Preparing protected areas mask, to use in clipping')
     # Load the protected areas (only for the countries that the raster
     # intersects).
@@ -789,17 +797,17 @@ def calculate_pixel_size_and_counts(profile, raster_data, verbose = True):
     if verbose:
 
         log.info('Pixel width × height = {:,.1f} metres × {:,.1f} metres = {:,.1f} m2'.format(
-            pixel_width_metres, pixel_height_metres, pixel_area_km2 * 1.0E6))
-        log.info("Total pxls:    {:12,d}           = {:15,.1f} km2".format(n_pxls_total, area_total_km2))
-        log.info("Masked pxls:   {:12,d} ({:>5.1f} %) = {:15,.1f} km2".format(n_pxls_masked, frac_pxls_masked * 100.0, area_masked_km2))
-        log.info("Unmasked pxls: {:12,d} ({:>5.1f} %) = {:15,.1f} km2".format(n_pxls_unmasked, frac_pxls_unmasked * 100.0, area_unmasked_km2))
+            pixel_width_metres, pixel_height_metres, pixel_area_km2 * 1.0E6), show_timestamp = False)
+        log.info("Total pxls:    {:12,d}           = {:15,.1f} km2".format(n_pxls_total, area_total_km2), show_timestamp = False)
+        log.info("Masked pxls:   {:12,d} ({:>5.1f} %) = {:15,.1f} km2".format(n_pxls_masked, frac_pxls_masked * 100.0, area_masked_km2), show_timestamp = False)
+        log.info("Unmasked pxls: {:12,d} ({:>5.1f} %) = {:15,.1f} km2".format(n_pxls_unmasked, frac_pxls_unmasked * 100.0, area_unmasked_km2), show_timestamp = False)
     
     return raster_info_dict
 
-def bin_raster_for_one_polygon_group(raster_src, raster_data, bins,
-                PA_mask, polygon_id_field, polygons_name = 'whole', polygons_GDF = None):
+def bin_raster_for_one_polygon_group(raster_src, raster_data, scale_factor,
+                bins, PA_mask, polygon_id_field, polygons_name = 'whole', polygons_GDF = None):
     
-    log.info('\n' + 80 * '-')
+    log.info('\n' + 80 * '-', show_timestamp = False)
     log.info('Binning raster for polygons list: {:}'.format(polygons_name))
 
     # Determine the length of the loop.
@@ -815,8 +823,8 @@ def bin_raster_for_one_polygon_group(raster_src, raster_data, bins,
         # Do binning for one polygon.
         polygon_id, results_for_one_polygon__dict = \
                 bin_raster_for_one_polygon(polygons_GDF, i, raster_data,
-                                   raster_src, PA_mask, bins, n_polys,
-                                   polygon_id_field)
+                                   raster_src, scale_factor, PA_mask, bins,
+                                   n_polys, polygon_id_field)
 
         # Store array for this polygon in dictionary.
         results_for_all_polygons_in_group__dict[polygon_id] =\
@@ -825,7 +833,8 @@ def bin_raster_for_one_polygon_group(raster_src, raster_data, bins,
     return results_for_all_polygons_in_group__dict
 
 def bin_raster_for_one_polygon(polygons_GDF, i, raster_data, raster_src,
-                               PA_mask, bins, n_polys, polygon_id_field):
+                               scale_factor, PA_mask, bins, n_polys,
+                               polygon_id_field):
 
     # Apply the protected areas mask and get polygon name and ID.
     raster_data, raster_data_PA, polygon_name, polygon_id =\
@@ -854,7 +863,8 @@ def bin_raster_for_one_polygon(polygons_GDF, i, raster_data, raster_src,
     # Do binning and get bin counts for the data with and without the
     # protected areas mask.
     results_for_one_polygon__dict = get_bin_counts_wrapper(
-            raster_data, raster_data_PA, bins, pxl_info['pixel_area_km2'])
+            raster_data, raster_data_PA, bins, pxl_info['pixel_area_km2'],
+            scale_factor)
 
     # Print an update.
     print_bin_count_update(i, n_polys, polygon_name,
@@ -995,11 +1005,11 @@ def update_mask(array, new_mask, operator):
 
     return array_mask_updated
 
-def get_bin_counts_wrapper(data, data_PA, bins, pixel_area_km2):
+def get_bin_counts_wrapper(data, data_PA, bins, pixel_area_km2, scale_factor):
 
     # Get bin counts.
-    counts_by_bin = get_bin_counts(data, bins)
-    counts_by_bin_in_PA = get_bin_counts(data_PA, bins)
+    counts_by_bin = get_bin_counts(data, bins, scale_factor)
+    counts_by_bin_in_PA = get_bin_counts(data_PA, bins, scale_factor)
     counts_by_bin_not_in_PA = counts_by_bin - counts_by_bin_in_PA
 
     # Get bin areas.
@@ -1020,7 +1030,12 @@ def get_bin_counts_wrapper(data, data_PA, bins, pixel_area_km2):
     #return areas_km2_by_bin_array
     return results_for_one_polygon__dict
 
-def get_bin_counts(data_with_mask, bins):
+def get_bin_counts(data_with_mask, bins, scale_factor):
+
+    # Apply the scale factor (some rasters use a range not between
+    # 0 and 1, for example to allow smaller file sizes by saving as
+    # Int16 format).
+    data_with_mask = data_with_mask / scale_factor
 
     # Bin the data and re-apply the mask.
     binned = np.digitize(data_with_mask, bins, right = False)
@@ -1028,7 +1043,7 @@ def get_bin_counts(data_with_mask, bins):
 
     # Get counts for each bin, ignoring masked values.
     n_bins = len(bins) - 1
-    counts_by_bin = np.zeros(n_bins)
+    counts_by_bin = np.zeros(n_bins, dtype = int)
     for i in range(1, len(bins)):
         
         counts_by_bin[i - 1] = np.sum((binned == i) & ~binned.mask)
@@ -1039,18 +1054,14 @@ def print_bin_count_update(i, n_polys, polygon_name, results_for_one_polygon__di
 
     # Print update.
     log.info("\nPolygon {:>5d} of {:>5d}: {:}".format(i + 1, n_polys, polygon_name))
-    log.info("Raster areas (km2) within polygon:")
-    log.info("{:15} {:>15} {:>15} {:>15}".format('Bin', 'total', 'protected', 'unprotected'))
+    log.info("Raster areas (km2) within polygon:", show_timestamp = False)
+    log.info("{:15} {:>15} {:>15} {:>15}".format('Bin', 'total', 'protected', 'unprotected'), show_timestamp = False)
     log.info("{:15} {:15,.1f} {:15,.1f} {:15,.1f}".format(
             'All bins',
             total_area,
             total_area_protected,
-            total_area_unprotected))
+            total_area_unprotected), show_timestamp = False)
 
-    #n_bins = areas_km2_by_bin_array.shape[0]
-    #for i in range(n_bins):
-    #    print("{:15d} {:15,.1f} {:15,.1f} {:15,.1f}".format(
-    #            i, *areas_km2_by_bin_array[i, :]))
     n_bins = results_for_one_polygon__dict['area_km2_by_bin'].shape[0]
     for i in range(n_bins):
         log.info("{:15d} {:15,.1f} {:15,.1f} {:15,.1f}".format(
@@ -1058,7 +1069,7 @@ def print_bin_count_update(i, n_polys, polygon_name, results_for_one_polygon__di
                 results_for_one_polygon__dict['area_km2_by_bin'][i],
                 results_for_one_polygon__dict['area_km2_by_bin_in_PA'][i],
                 results_for_one_polygon__dict['area_km2_by_bin_not_in_PA'][i],
-                ))
+                ), show_timestamp = False)
 
     return
 
@@ -1091,22 +1102,18 @@ def main():
     catalog, results, path_results = \
         load_results_and_catalog_and_remove_results_no_longer_in_catalog(
                 dir_output, dir_data)
-    log.info(catalog)
-
-    import sys
-    sys.exit()
 
     # Define paths for admin polygons and protected areas.
     path_adm0, path_adm1, path_PA_gpkg = define_dataset_paths(dir_data)
 
     # Loop through all the datasets in the catalog.
-    for _, dataset in catalog.iterrows():
+    for key, dataset in catalog.iterrows():
         
-        key = dataset['key']
-        log.info(80 * '=')
+        #key = dataset['key']
+        log.info(80 * '=', show_timestamp = False)
         log.info('Processing dataset: {:}'.format(key))
         log.info('')
-        if key in results.keys():
+        if (key in results.keys()) and (dataset['overwrite'] == 'no'):
             
             log.info('Skipping processing for {:}, as the results file already has data for this dataset.'.format(key))
             continue
@@ -1114,11 +1121,22 @@ def main():
         # Do all the processing steps for this raster.
         results[key] = find_intersections_and_do_binning_for_one_raster(
                         dir_data, path_adm0, path_adm1, path_PA_gpkg,
-                        dataset['file_name'])
+                        dataset['folder'], dataset['input_file_name'],
+                        dataset['band'],
+                        dataset['scale_factor'])
+
+    # Transfer (or update) metadata from the catalog to the results.
+    metadata_keys_to_use = ['folder', 'input_file_name', 'species', 'study_area',
+                            'source_link', 'source_text']
+    for dataset in results:
+
+        for metadata_key in metadata_keys_to_use:
+
+            results[dataset][metadata_key] = catalog.loc[dataset][metadata_key]
 
     # Log the results.
-    logging.info("Final results:", to_console = False)
-    logging.info(json.dumps(results, indent=4, cls = custom_JSON_encoder),
+    log.info("Final results:", to_console = False)
+    log.info(json.dumps(results, indent=4, cls = custom_JSON_encoder),
                                 to_console = False)
     
     # Get a list of all the admin-0 and and admin-1 zones covered by
@@ -1130,7 +1148,7 @@ def main():
     log.info(all_adm1)
 
     # Save the results as a JSON file.
-    log.info('')
+    log.info('', show_timestamp = False)
     log.info("Saving to {:}".format(path_results))
     with open(path_results, "w") as f:
         json.dump(results, f, indent=4, cls = custom_JSON_encoder)

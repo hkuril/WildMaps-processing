@@ -4,8 +4,13 @@ from datetime import datetime
 
 class CustomFormatter(logging.Formatter):
     def format(self, record):
+        show_timestamp = getattr(record, 'show_timestamp', True)
+        
         timestamp = datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
         message = record.getMessage()
+        if not show_timestamp:
+            return message
+
         if '\n' in message or len(message) > 80:
             return f"{timestamp}\n{message}"
         else:
@@ -34,20 +39,21 @@ class LoggerWrapper:
         ch.addFilter(ConsoleFilter())
         self.logger.addHandler(ch)
 
-    def log(self, level, message, to_console=True):
-        self.logger.log(level, message, extra={'to_console': to_console})
+    def log(self, level, message, to_console=True, show_timestamp = True):
+        self.logger.log(level, message, extra={'to_console': to_console,
+                                               'show_timestamp' : show_timestamp})
 
-    def debug(self, message, to_console=True):
-        self.log(logging.DEBUG, message, to_console)
+    def debug(self, message, to_console=True, show_timestamp = True):
+        self.log(logging.DEBUG, message, to_console, show_timestamp)
 
-    def info(self, message, to_console=True):
-        self.log(logging.INFO, message, to_console)
+    def info(self, message, to_console=True, show_timestamp = True):
+        self.log(logging.INFO, message, to_console, show_timestamp)
 
-    def warning(self, message, to_console=True):
-        self.log(logging.WARNING, message, to_console)
+    def warning(self, message, to_console=True, show_timestamp = True):
+        self.log(logging.WARNING, message, to_console, show_timestamp)
 
-    def error(self, message, to_console=True):
-        self.log(logging.ERROR, message, to_console)
+    def error(self, message, to_console=True, show_timestamp = True):
+        self.log(logging.ERROR, message, to_console, show_timestamp)
 
-    def critical(self, message, to_console=True):
-        self.log(logging.CRITICAL, message, to_console)
+    def critical(self, message, to_console=True, show_timestamp = True):
+        self.log(logging.CRITICAL, message, to_console, show_timestamp)
