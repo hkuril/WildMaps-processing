@@ -25,6 +25,9 @@ from shapely.geometry import (GeometryCollection, MultiPolygon, Polygon,
                               shape)
 from shapely.ops import transform as sh_transform, unary_union
 
+# Import local modules.
+from custom_logging import LoggerWrapper
+
 # Define constants.
 # EPSG_MOLLWEIDE    The identifier string for the Mollweide projection.
 EPSG_MOLLWEIDE = "ESRI:54009"
@@ -42,29 +45,12 @@ def parse_args():
 
 def initialise_logging(dir_output):
 
-    # Generate log file name with date/time
-    logfile_name = datetime.now().strftime("log_%Y-%m-%d_%H-%M-%S.txt")
-    path_logfile = os.path.join(dir_output, logfile_name)
-    
-    # Configure logging to log to both file and terminal
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    
-    # File handler (logs everything)
-    file_handler = logging.FileHandler(log_filename)
-    file_handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
-    logger.addHandler(file_handler)
-    
-    # Console handler (only logs what you "print")
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
-    logger.addHandler(console_handler)
-    
-    # Override print to log to both file and console
-    global print
-    print = lambda *args, **kwargs: logger.info(' '.join(map(str, args)))
+    global log
+    path_log = os.path.join(dir_output, datetime.now().strftime("log_%Y-%m-%d_%H-%M-%S.txt"))
+    log = LoggerWrapper(path_log)
+    log.info('Writing logs to {:}'.format(path_log))
 
-    return print
+    return
 
 def summarize_raster(src, data):
 
@@ -96,16 +82,16 @@ def summarize_raster(src, data):
         'median': median_val
     }
     
-    print("Basic properties of the raster file:")
+    log.info("Basic properties of the raster file:")
     for k, v in summary.items():
-        print("{:30} : {:50}".format(k, str(v)))
-    print('')
+        log.info("{:30} : {:50}".format(k, str(v)))
+    log.info('')
 
     return summary
 
 def load_dataset_catalog(path_catalog):
     
-    print('Loading catalog from {:}'.format(path_catalog))
+    log.info('Loading catalog from {:}'.format(path_catalog))
     catalog = pd.read_csv(path_catalog)
 
     return catalog 
@@ -113,16 +99,17 @@ def load_dataset_catalog(path_catalog):
 def load_results(path_results):
 
     if not os.path.exists(path_results):
-        print("No existing results file found at {:}.".format(path_results))
+        log.info("No existing results file found at {:}.".format(path_results))
         return {}
     
-    print("Loading existing results file at {:}".format(path_results))
+    log.info("Loading existing results file at {:}".format(path_results))
     with open(path_results, 'r', encoding='utf-8') as f:
         results = json.load(f)
 
     # Log the previous results. 
-    logger.info('Existing results:')
-    logger.info(json.dumps(results, indent=4, cls = custom_JSON_encoder))
+    log.info('Existing results:', to_console = False)
+    log.info(json.dumps(results, indent=4, cls = custom_JSON_encoder),
+                                to_console = False)
 
     return results
 
@@ -148,7 +135,7 @@ def load_results_and_catalog_and_remove_results_no_longer_in_catalog(
 
         else:
 
-            print('The dataset {:} was found in the results file {:} but is not listed in the catalog file {:}, so it will be removed from the results file.'.format(k, path_results, path_catalog))
+            log.info('The dataset {:} was found in the results file {:} but is not listed in the catalog file {:}, so it will be removed from the results file.'.format(k, path_results, path_catalog))
 
     results = results_updated
 
@@ -220,11 +207,11 @@ def find_intersections_and_do_binning_for_one_raster(dir_data, path_adm0, path_a
 def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_raster):
     
     # Load the country outlines (admin-0 boundaries).
-    print("Loading adm-0 file {:}".format(path_adm0))
+    log.info("Loading adm-0 file {:}".format(path_adm0))
     gdf_adm0 = gpd.read_file(path_adm0)
 
     # Load the raster, read the first band (with masking), and print summary.
-    print("Loading raster file {:}".format(path_raster))
+    log.info("Loading raster file {:}".format(path_raster))
     raster_src = rasterio.open(path_raster)
     raster_data = raster_src.read(1, masked=True)
     summarize_raster(raster_src, raster_data)
@@ -247,7 +234,7 @@ def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_rast
     filter_field = 'adm0_iso3'
     gdf_adm1 = load_gpkg_filtered_by_list_as_gdf(path_adm1,
                             filter_field, list_of_adm0)
-    print('')
+    log.info('')
 
     # Determine which admin-1 areas the raster intersects with.
     cols_to_keep = ['name', 'adm0_iso3', 'adm1_code']
@@ -269,8 +256,8 @@ def find_which_polygons_intersect_raster(polygons, raster_data, raster_src,
                                          cols_to_keep, region_name_with_plural,
                                          id_field = 'iso3'):
 
-    print(80 * '-')
-    print("Finding which {:} intersect with the raster.".format(
+    log.info(80 * '-')
+    log.info("Finding which {:} intersect with the raster.".format(
         region_name_with_plural[1]))
 
     # Unpack raster information.
@@ -452,23 +439,23 @@ def print_intersection_area_summary(raster_total_area_km2, intersections,
                                     region_name_with_plural, id_field = 'iso3',
                                     name_field = 'name'):
 
-    print('The area covered by the raster (not including null pixels) is: {:,.1f} km2'.format(raster_total_area_km2))
+    log.info('The area covered by the raster (not including null pixels) is: {:,.1f} km2'.format(raster_total_area_km2))
     if len(intersections) == 1:
         region_str = region_name_with_plural[0]
     else:
         region_str = region_name_with_plural[1]
-    print('The raster intersects with {:d} {:}:'.format(len(intersections), region_str))
+    log.info('The raster intersects with {:d} {:}:'.format(len(intersections), region_str))
     region_str = region_name_with_plural[0]
     row_fmt = '{:7} {:20} {:>20,.1f} {:>20,.1f} {:>15,.4f} {:>15,.4f} {:>7}'
     row_header_fmt = '{:7} {:20} {:>20} {:>20} {:>15} {:>15} {:>7}'
-    print(row_header_fmt.format('iso3', region_str, 'intersection (km2)', '{:} area (km2)'.format(region_str), '% of {:}'.format(region_str), '% of raster', 'discard'))
+    log.info(row_header_fmt.format('iso3', region_str, 'intersection (km2)', '{:} area (km2)'.format(region_str), '% of {:}'.format(region_str), '% of raster', 'discard'))
     for _, intersection in intersections.iterrows():
         
         if intersection['discard']:
             discard_str = 'yes'
         else:
             discard_str = 'no'
-        print(row_fmt.format(intersection[id_field], intersection[name_field][:20],
+        log.info(row_fmt.format(intersection[id_field], intersection[name_field][:20],
                 intersection['area_of_intersection_km2'],
                 intersection['area_of_original_poly_km2'],
                 intersection['frac_of_original_poly'] * 100.0,
@@ -576,13 +563,13 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins, dict_of_p
 
 def reproject_raster_wrapper(raster_data, raster_src, profile):
     
-    print('\n' + 80 * '-')
+    log.info('\n' + 80 * '-')
 
     # Based on the geographical location of the raster, we 
     # define a suitable projected coordinate system.
     dst_crs = get_suitable_regional_projection_for_raster(
                     raster_data, raster_src)
-    print("Reprojecting raster to {:}".format(dst_crs))
+    log.info("Reprojecting raster to {:}".format(dst_crs))
 
     # Find the updated raster profile (which contains transform
     # information) based on the new CRS.
@@ -607,7 +594,7 @@ def make_in_memory_raster(data, profile):
 
 def get_suitable_regional_projection_for_raster(raster_data, raster_src):
     
-    print('Finding a Lambert azimuthal equal area projection centred on the raster')
+    log.info('Finding a Lambert azimuthal equal area projection centred on the raster')
 
     # Unpack raster information.
     transform = raster_src.transform
@@ -622,13 +609,13 @@ def get_suitable_regional_projection_for_raster(raster_data, raster_src):
                                     raster_geom, raster_crs,
                                     tolerance = 1e-3,
                                     max_iterations = 10)
-    print('The geographical centre of the raster is {:+.3f} E {:+.3f} N'
+    log.info('The geographical centre of the raster is {:+.3f} E {:+.3f} N'
           .format(lon_centroid, lat_centroid))
 
     # Define azimuthal equal-area CRS centered on raster.
     laea_crs = CRS.from_proj4(f"+proj=laea +lat_0={lat_centroid} +lon_0={lon_centroid} +units=m +datum=WGS84 +no_defs")
-    print('The proj4 string (defining the new map projection) is:')
-    print(laea_crs)
+    log.info('The proj4 string (defining the new map projection) is:')
+    log.info(laea_crs)
 
     return laea_crs
 
@@ -735,8 +722,8 @@ def load_protected_areas_for_raster_clipping(path_PA_gpkg,
                         adm0_list, raster_crs,
                         raster_shape, raster_transform):
     
-    print('\n' + 80 * '-')
-    print('Preparing protected areas mask, to use in clipping')
+    log.info('\n' + 80 * '-')
+    log.info('Preparing protected areas mask, to use in clipping')
     # Load the protected areas (only for the countries that the raster
     # intersects).
     filter_field = 'iso3'
@@ -801,19 +788,19 @@ def calculate_pixel_size_and_counts(profile, raster_data, verbose = True):
     
     if verbose:
 
-        print('Pixel width × height = {:,.1f} metres × {:,.1f} metres = {:,.1f} m2'.format(
+        log.info('Pixel width × height = {:,.1f} metres × {:,.1f} metres = {:,.1f} m2'.format(
             pixel_width_metres, pixel_height_metres, pixel_area_km2 * 1.0E6))
-        print("Total pxls:    {:12,d}           = {:15,.1f} km2".format(n_pxls_total, area_total_km2))
-        print("Masked pxls:   {:12,d} ({:>5.1f} %) = {:15,.1f} km2".format(n_pxls_masked, frac_pxls_masked * 100.0, area_masked_km2))
-        print("Unmasked pxls: {:12,d} ({:>5.1f} %) = {:15,.1f} km2".format(n_pxls_unmasked, frac_pxls_unmasked * 100.0, area_unmasked_km2))
+        log.info("Total pxls:    {:12,d}           = {:15,.1f} km2".format(n_pxls_total, area_total_km2))
+        log.info("Masked pxls:   {:12,d} ({:>5.1f} %) = {:15,.1f} km2".format(n_pxls_masked, frac_pxls_masked * 100.0, area_masked_km2))
+        log.info("Unmasked pxls: {:12,d} ({:>5.1f} %) = {:15,.1f} km2".format(n_pxls_unmasked, frac_pxls_unmasked * 100.0, area_unmasked_km2))
     
     return raster_info_dict
 
 def bin_raster_for_one_polygon_group(raster_src, raster_data, bins,
                 PA_mask, polygon_id_field, polygons_name = 'whole', polygons_GDF = None):
     
-    print('\n' + 80 * '-')
-    print('Binning raster for polygons list: {:}'.format(polygons_name))
+    log.info('\n' + 80 * '-')
+    log.info('Binning raster for polygons list: {:}'.format(polygons_name))
 
     # Determine the length of the loop.
     if polygons_GDF is None:
@@ -933,7 +920,7 @@ def load_gpkg_filtered_by_list_as_gdf(gpkg_path, filter_field,
     list_str = ", ".join(f"'{val}'" for val in allowed_list)
     sql = f"SELECT * FROM {layer_name} WHERE {filter_field} IN ({list_str})"
 
-    print('Loading from {:}\nwith query {:}'.format(gpkg_path, sql))
+    log.info('Loading from {:}\nwith query {:}'.format(gpkg_path, sql))
 
     return gpd.read_file(gpkg_path, sql=sql)
 
@@ -1051,10 +1038,10 @@ def get_bin_counts(data_with_mask, bins):
 def print_bin_count_update(i, n_polys, polygon_name, results_for_one_polygon__dict, total_area, total_area_protected, total_area_unprotected):
 
     # Print update.
-    print("\nPolygon {:>5d} of {:>5d}: {:}".format(i + 1, n_polys, polygon_name))
-    print("Raster areas (km2) within polygon:")
-    print("{:15} {:>15} {:>15} {:>15}".format('Bin', 'total', 'protected', 'unprotected'))
-    print("{:15} {:15,.1f} {:15,.1f} {:15,.1f}".format(
+    log.info("\nPolygon {:>5d} of {:>5d}: {:}".format(i + 1, n_polys, polygon_name))
+    log.info("Raster areas (km2) within polygon:")
+    log.info("{:15} {:>15} {:>15} {:>15}".format('Bin', 'total', 'protected', 'unprotected'))
+    log.info("{:15} {:15,.1f} {:15,.1f} {:15,.1f}".format(
             'All bins',
             total_area,
             total_area_protected,
@@ -1066,7 +1053,7 @@ def print_bin_count_update(i, n_polys, polygon_name, results_for_one_polygon__di
     #            i, *areas_km2_by_bin_array[i, :]))
     n_bins = results_for_one_polygon__dict['area_km2_by_bin'].shape[0]
     for i in range(n_bins):
-        print("{:15d} {:15,.1f} {:15,.1f} {:15,.1f}".format(
+        log.info("{:15d} {:15,.1f} {:15,.1f} {:15,.1f}".format(
                 i + 1,
                 results_for_one_polygon__dict['area_km2_by_bin'][i],
                 results_for_one_polygon__dict['area_km2_by_bin_in_PA'][i],
@@ -1095,15 +1082,20 @@ def main():
     args = parse_args()
     dir_data = args.dir_data
     dir_output = os.path.join(dir_data, 'code_output')
-    print('')
+    #print('')
 
-    # Set up logging.
-    print = initialise_logging(dir_output)
+    # Set up logging (overrides the 'print' function).
+    initialise_logging(dir_output)
     
     # Load results and catalog, and clear out any old results.
     catalog, results, path_results = \
         load_results_and_catalog_and_remove_results_no_longer_in_catalog(
                 dir_output, dir_data)
+    log.info(catalog)
+    log.info(results)
+
+    import sys
+    sys.exit()
 
     # Define paths for admin polygons and protected areas.
     path_adm0, path_adm1, path_PA_gpkg = define_dataset_paths(dir_data)
@@ -1112,12 +1104,12 @@ def main():
     for _, dataset in catalog.iterrows():
         
         key = dataset['key']
-        print(80 * '=')
-        print('Processing dataset: {:}'.format(key))
-        print('')
+        log.info(80 * '=')
+        log.info('Processing dataset: {:}'.format(key))
+        log.info('')
         if key in results.keys():
             
-            print('Skipping processing for {:}, as the results file already has data for this dataset.'.format(key))
+            log.info('Skipping processing for {:}, as the results file already has data for this dataset.'.format(key))
             continue
 
         # Do all the processing steps for this raster.
@@ -1126,23 +1118,21 @@ def main():
                         dataset['file_name'])
 
     # Log the results.
-    logger.info("Final results:")
-    logger.info(json.dumps(results, indent=4, cls = custom_JSON_encoder))
+    logging.info("Final results:", to_console = False)
+    logging.info(json.dumps(results, indent=4, cls = custom_JSON_encoder),
+                                to_console = False)
     
-    print('Results:')
-    print(results)
-
     # Get a list of all the admin-0 and and admin-1 zones covered by
     # all the rasters.
     all_adm0 = get_unique_list_from_nested_attr(results, 'adm0_list')
     all_adm1 = get_unique_list_from_nested_attr(results, 'adm1_list')
-    print('Admin-0 and admin-1 zones covered:')
-    print(all_adm0)
-    print(all_adm1)
+    log.info('Admin-0 and admin-1 zones covered:')
+    log.info(all_adm0)
+    log.info(all_adm1)
 
     # Save the results as a JSON file.
-    print('')
-    print("Saving to {:}".format(path_results))
+    log.info('')
+    log.info("Saving to {:}".format(path_results))
     with open(path_results, "w") as f:
         json.dump(results, f, indent=4, cls = custom_JSON_encoder)
     
