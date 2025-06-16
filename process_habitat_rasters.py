@@ -1,8 +1,14 @@
+# Import modules from the standard library.
 import argparse
+from datetime import datetime
+import json
+import logging
 import os
+import sys
 from typing import List
 import warnings
 
+# Import third-party libraries.
 import fiona
 import geopandas as gpd
 import numpy as np
@@ -10,7 +16,6 @@ import pandas as pd
 from pyproj import CRS, Transformer
 import rasterio
 from rasterio.enums import Resampling
-#from rasterio.features import geometry_mask, shapes
 from rasterio.features import rasterize, shapes
 from rasterio.io import MemoryFile
 from rasterio.mask import mask as rasterio_mask
@@ -20,6 +25,8 @@ from shapely.geometry import (GeometryCollection, MultiPolygon, Polygon,
                               shape)
 from shapely.ops import transform as sh_transform, unary_union
 
+# Define constants.
+# EPSG_MOLLWEIDE    The identifier string for the Mollweide projection.
 EPSG_MOLLWEIDE = "ESRI:54009"
 
 # --- Setting up. -------------------------------------------------------------
@@ -33,10 +40,31 @@ def parse_args():
 
     return args
 
-def make_output_dir(dir_data):
-    dir_out = os.path.join(dir_data, 'code_output')
-    os.makedirs(dir_out, exist_ok=True)
-    return dir_out
+def initialise_logging(dir_output):
+
+    # Generate log file name with date/time
+    logfile_name = datetime.now().strftime("log_%Y-%m-%d_%H-%M-%S.txt")
+    path_logfile = os.path.join(dir_output, logfile_name)
+    
+    # Configure logging to log to both file and terminal
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    
+    # File handler (logs everything)
+    file_handler = logging.FileHandler(log_filename)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
+    logger.addHandler(file_handler)
+    
+    # Console handler (only logs what you "print")
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
+    logger.addHandler(console_handler)
+    
+    # Override print to log to both file and console
+    global print
+    print = lambda *args, **kwargs: logger.info(' '.join(map(str, args)))
+
+    return print
 
 def summarize_raster(src, data):
 
@@ -75,7 +103,120 @@ def summarize_raster(src, data):
 
     return summary
 
+def load_dataset_catalog(path_catalog):
+    
+    print('Loading catalog from {:}'.format(path_catalog))
+    catalog = pd.read_csv(path_catalog)
+
+    return catalog 
+
+def load_results(path_results):
+
+    if not os.path.exists(path_results):
+        print("No existing results file found at {:}.".format(path_results))
+        return {}
+    
+    print("Loading existing results file at {:}".format(path_results))
+    with open(path_results, 'r', encoding='utf-8') as f:
+        results = json.load(f)
+
+    # Log the previous results. 
+    logger.info('Existing results:')
+    logger.info(json.dumps(results, indent=4, cls = custom_JSON_encoder))
+
+    return results
+
+def load_results_and_catalog_and_remove_results_no_longer_in_catalog(
+        dir_output, dir_data):
+
+    # The catalog tells us which files need to be processed.
+    path_catalog = os.path.join(dir_data, 'dataset_catalog.csv')
+    catalog = load_dataset_catalog(path_catalog)
+
+    # Load any existing output, to avoid repeat calculations.
+    path_results = os.path.join(dir_output, 'results.json')
+    results = load_results(path_results)
+
+    # Clear any rows from the results that are no longer found in the
+    # catalog (i.e. they were deleted from the catalog file).
+    results_updated = {}
+    for k, v in results.items():
+
+        if k in list(catalog['key']):
+
+            results_updated[k] = v
+
+        else:
+
+            print('The dataset {:} was found in the results file {:} but is not listed in the catalog file {:}, so it will be removed from the results file.'.format(k, path_results, path_catalog))
+
+    results = results_updated
+
+    return catalog, results, path_results
+
+def define_dataset_paths(dir_data):
+
+    # Define file path for (vector) country polygons
+    # (also known as admin level 0 boundaries).
+    dir_geoBoundaries = os.path.join(dir_data, 'vector', 'admin_boundaries',
+                             'geoBoundaries')
+    path_adm0 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM0.gpkg')
+    path_adm1 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM1.gpkg')
+
+    # Load the (vector) protected area polygons.
+    path_PA_gpkg = os.path.join(
+                            dir_data, 'vector', 'protected_areas', 'WDPA',
+                            'WDPA_Jun2025_Public-polygons.gpkg')
+
+    return path_adm0, path_adm1, path_PA_gpkg
+
+class custom_JSON_encoder(json.JSONEncoder):
+    '''
+    This class helps withsaving certain datatypes to JSON (such as np arrays).
+    '''
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        #if isinstance(obj, (np.integer, np.floating)):
+        #    return obj.item()
+        return super().default(obj)
+
 # --- Determine polygon intersections with the raster -------------------------
+def find_intersections_and_do_binning_for_one_raster(dir_data, path_adm0, path_adm1, path_PA_gpkg, raster_file_name):
+
+    # Load the (raster) habitat suitability data.
+    #name_raster = 'glm_pangosnewroads_seed333_1_1.tif'
+    path_raster = os.path.join(dir_data, 'raster', 'habitat_suitability',
+                               raster_file_name)
+
+    # Summarize the raster and determine which country polygons
+    # it intersects with.
+    intersections_adm0, list_of_adm0, intersections_adm1, list_of_adm1 = \
+            find_which_polygons_intersect_raster_wrapper(
+                            path_adm0, path_adm1, path_raster)
+    
+    # Bin the raster values into discrete ranges.
+    bins = [0.0, 0.25, 0.50, 0.75, 1.0]
+    results = dict()
+    dict_of_polygon_GDFs = {'whole'     : None,
+                            'country'   : intersections_adm0,
+                            'adm1-zone' : intersections_adm1}
+    polygon_id_field_dict = {'whole'    : None,
+                             'country'  : 'iso3',
+                             'adm1-zone': 'adm1_code'}
+    results = bin_raster_for_all_polygon_groups(
+                                    path_raster,
+                                    path_PA_gpkg,
+                                    bins,
+                                    dict_of_polygon_GDFs,
+                                    list_of_adm0,
+                                    polygon_id_field_dict)
+
+    results['adm0_list'] = list_of_adm0
+    results['adm1_list'] = list_of_adm1
+
+    return results
+
 def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_raster):
     
     # Load the country outlines (admin-0 boundaries).
@@ -99,7 +240,7 @@ def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_rast
                                             id_field = 'iso3')
 
     # Get a list of the ISO codes of the countries intersected.
-    list_of_adm0 = list(intersections_adm0['iso3'].unique())
+    list_of_adm0 = sorted(list(intersections_adm0['iso3'].unique()))
 
     # Load admin-1 boundaries, but only those that are for countries which
     # intersect the raster.
@@ -108,7 +249,7 @@ def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_rast
                             filter_field, list_of_adm0)
     print('')
 
-    # Determine which countries the raster intersects with.
+    # Determine which admin-1 areas the raster intersects with.
     cols_to_keep = ['name', 'adm0_iso3', 'adm1_code']
     region_name_with_plural = ['adm1 zone', 'adm1 zones']
     intersections_adm1 = find_which_polygons_intersect_raster(
@@ -118,7 +259,11 @@ def find_which_polygons_intersect_raster_wrapper(path_adm0, path_adm1, path_rast
                                             region_name_with_plural,
                                             id_field = 'adm1_code')
 
-    return intersections_adm0, list_of_adm0, intersections_adm1
+    # Get a list of the codes of the admin-1 zones intersected.
+    list_of_adm1 = sorted(list(intersections_adm1['adm1_code'].unique()))
+
+    return  intersections_adm0, list_of_adm0,\
+            intersections_adm1, list_of_adm1
 
 def find_which_polygons_intersect_raster(polygons, raster_data, raster_src,
                                          cols_to_keep, region_name_with_plural,
@@ -402,7 +547,7 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins, dict_of_p
     if raster_data.min() < min_bin or raster_data.max() > max_bin:
         warnings.warn("Some raster values fall outside the defined bins.")
     # Prepare output dictionary.
-    results = dict()
+    results_for_all_polygon_groups__dict = dict()
     # Loop over lists of polygons.
     for polygons_name, polygons_GDF in dict_of_polygon_GDFs.items():
 
@@ -412,7 +557,7 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins, dict_of_p
            polygons_GDF = polygons_GDF.to_crs(dst_crs)
 
         # Do binning.
-        results[polygons_name] =\
+        results_for_all_polygon_groups__dict[polygons_name] =\
                 bin_raster_for_one_polygon_group(
                             raster_src, raster_data,
                             bins, PA_mask,
@@ -420,8 +565,14 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins, dict_of_p
                             polygons_GDF = polygons_GDF,
                             polygons_name = polygons_name)
 
+    ## Flatten the results dictionary (makes it easier to manipulate later).
+    #results_flat = {}
+    #for outer_key, inner_dict in results.items():
+    #    for inner_key, values in inner_dict.items():
+    #        flattened[inner_key] = {'zone': outer_key, **values}
+
     #return binned, profile
-    return results
+    return results_for_all_polygon_groups__dict
 
 def reproject_raster_wrapper(raster_data, raster_src, profile):
     
@@ -480,6 +631,52 @@ def get_suitable_regional_projection_for_raster(raster_data, raster_src):
     print(laea_crs)
 
     return laea_crs
+
+def geographic_true_centroid(polygon: Polygon, polygon_crs: CRS, tolerance: float = 1e-10, max_iterations: int = 10):
+    """
+    Computes the true geographic centroid of a polygon on the ellipsoid
+    using iterative projection to an Azimuthal Equidistant projection.
+
+    Args:
+        polygon (shapely.geometry.Polygon): The input polygon.
+        polygon_crs (pyproj.CRS): The CRS of the input polygon (e.g., pyproj.CRS("EPSG:4326")).
+        tolerance (float): Convergence threshold in degrees.
+        max_iterations (int): Maximum number of iterations.
+
+    Returns:
+        (float, float): The true geographic centroid in geographic coordinates (lon, lat).
+    """
+    assert polygon.is_valid and not polygon.is_empty, "Invalid or empty polygon."
+
+    # Start with the centroid in the polygon's native CRS
+    initial_centroid = polygon.centroid
+
+    # Define a transformer to geographic coordinates
+    to_geo = Transformer.from_crs(polygon_crs, CRS("EPSG:4326"), always_xy=True)
+    lon, lat = to_geo.transform(initial_centroid.x, initial_centroid.y)
+
+    for _ in range(max_iterations):
+        # Define AEQD CRS centered on current (lon, lat)
+        laea_crs = CRS.from_proj4(f"+proj=laea +lat_0={lat} +lon_0={lon} +datum=WGS84 +units=m +no_defs")
+        from_crs_to_laea = Transformer.from_crs(polygon_crs, laea_crs, always_xy=True).transform
+        from_laea_to_geo = Transformer.from_crs(laea_crs, CRS("EPSG:4326"), always_xy=True).transform
+
+        # Reproject the polygon
+        projected_polygon = sh_transform(from_crs_to_laea, polygon)
+
+        # Compute projected centroid
+        projected_centroid = projected_polygon.centroid
+
+        # Transform back to geographic coordinates
+        new_lon, new_lat = sh_transform(from_laea_to_geo, projected_centroid).coords[0]
+
+        # Check for convergence
+        if abs(new_lon - lon) < tolerance and abs(new_lat - lat) < tolerance:
+            return new_lon, new_lat
+
+        lon, lat = new_lon, new_lat
+
+    return lon, lat
 
 def generate_raster_profile_from_crs(dst_crs, raster_src, raster_profile):
 
@@ -625,19 +822,20 @@ def bin_raster_for_one_polygon_group(raster_src, raster_data, bins,
         n_polys = len(polygons_GDF)
     
     # Loop over each polygon to do binning.
-    areas_by_bin_for_each_polygon = dict()
+    results_for_all_polygons_in_group__dict = dict()
     for i in range(n_polys):
 
         # Do binning for one polygon.
-        polygon_id, areas_km2_by_bin_array = \
+        polygon_id, results_for_one_polygon__dict = \
                 bin_raster_for_one_polygon(polygons_GDF, i, raster_data,
                                    raster_src, PA_mask, bins, n_polys,
                                    polygon_id_field)
 
         # Store array for this polygon in dictionary.
-        areas_by_bin_for_each_polygon[polygon_id] = areas_km2_by_bin_array
+        results_for_all_polygons_in_group__dict[polygon_id] =\
+                results_for_one_polygon__dict
 
-    return areas_by_bin_for_each_polygon
+    return results_for_all_polygons_in_group__dict
 
 def bin_raster_for_one_polygon(polygons_GDF, i, raster_data, raster_src,
                                PA_mask, bins, n_polys, polygon_id_field):
@@ -668,16 +866,17 @@ def bin_raster_for_one_polygon(polygons_GDF, i, raster_data, raster_src,
 
     # Do binning and get bin counts for the data with and without the
     # protected areas mask.
-    areas_km2_by_bin_array = get_bin_counts_wrapper(
+    results_for_one_polygon__dict = get_bin_counts_wrapper(
             raster_data, raster_data_PA, bins, pxl_info['pixel_area_km2'])
 
     # Print an update.
-    print_bin_count_update(i, n_polys, polygon_name, areas_km2_by_bin_array,
+    print_bin_count_update(i, n_polys, polygon_name,
+                           results_for_one_polygon__dict,
             pxl_info['area_unmasked_km2'],
             pxl_info_PA['area_unmasked_km2'],
             pxl_info['area_unmasked_km2'] - pxl_info_PA['area_unmasked_km2'])
 
-    return polygon_id, areas_km2_by_bin_array
+    return polygon_id, results_for_one_polygon__dict
 
 def prepare_PA_masked_raster_and_metadata(polygons_GDF, i, raster_data,
                                           raster_src, PA_mask, polygon_id_field):
@@ -822,11 +1021,17 @@ def get_bin_counts_wrapper(data, data_PA, bins, pixel_area_km2):
     areas_km2_by_bin_not_in_PA = counts_by_bin_not_in_PA * pixel_area_km2
 
     # Store the information for this group of polygons.
-    areas_km2_by_bin_array = np.stack([
-        areas_km2_by_bin, areas_km2_by_bin_in_PA,
-        areas_km2_by_bin_not_in_PA], axis = 1)
+    #areas_km2_by_bin_array = np.stack([
+    #    areas_km2_by_bin, areas_km2_by_bin_in_PA,
+    #    areas_km2_by_bin_not_in_PA], axis = 1)
+    results_for_one_polygon__dict = {
+        'area_km2_by_bin' : areas_km2_by_bin,
+        'area_km2_by_bin_in_PA' : areas_km2_by_bin_in_PA,
+        'area_km2_by_bin_not_in_PA' : areas_km2_by_bin_not_in_PA,
+        }
 
-    return areas_km2_by_bin_array
+    #return areas_km2_by_bin_array
+    return results_for_one_polygon__dict
 
 def get_bin_counts(data_with_mask, bins):
 
@@ -843,7 +1048,7 @@ def get_bin_counts(data_with_mask, bins):
 
     return counts_by_bin
 
-def print_bin_count_update(i, n_polys, polygon_name, areas_km2_by_bin_array, total_area, total_area_protected, total_area_unprotected):
+def print_bin_count_update(i, n_polys, polygon_name, results_for_one_polygon__dict, total_area, total_area_protected, total_area_unprotected):
 
     # Print update.
     print("\nPolygon {:>5d} of {:>5d}: {:}".format(i + 1, n_polys, polygon_name))
@@ -855,156 +1060,33 @@ def print_bin_count_update(i, n_polys, polygon_name, areas_km2_by_bin_array, tot
             total_area_protected,
             total_area_unprotected))
 
-    n_bins = areas_km2_by_bin_array.shape[0]
+    #n_bins = areas_km2_by_bin_array.shape[0]
+    #for i in range(n_bins):
+    #    print("{:15d} {:15,.1f} {:15,.1f} {:15,.1f}".format(
+    #            i, *areas_km2_by_bin_array[i, :]))
+    n_bins = results_for_one_polygon__dict['area_km2_by_bin'].shape[0]
     for i in range(n_bins):
         print("{:15d} {:15,.1f} {:15,.1f} {:15,.1f}".format(
-                i, *areas_km2_by_bin_array[i, :]))
+                i + 1,
+                results_for_one_polygon__dict['area_km2_by_bin'][i],
+                results_for_one_polygon__dict['area_km2_by_bin_in_PA'][i],
+                results_for_one_polygon__dict['area_km2_by_bin_not_in_PA'][i],
+                ))
 
     return
 
-# --- Unused code. -------------------------------
-def geographic_true_centroid(polygon: Polygon, polygon_crs: CRS, tolerance: float = 1e-10, max_iterations: int = 10):
-    """
-    Computes the true geographic centroid of a polygon on the ellipsoid
-    using iterative projection to an Azimuthal Equidistant projection.
+def get_unique_list_from_nested_attr(dict_, key):
 
-    Args:
-        polygon (shapely.geometry.Polygon): The input polygon.
-        polygon_crs (pyproj.CRS): The CRS of the input polygon (e.g., pyproj.CRS("EPSG:4326")).
-        tolerance (float): Convergence threshold in degrees.
-        max_iterations (int): Maximum number of iterations.
+    combined = []
+    for val in dict_.values():
 
-    Returns:
-        (float, float): The true geographic centroid in geographic coordinates (lon, lat).
-    """
-    assert polygon.is_valid and not polygon.is_empty, "Invalid or empty polygon."
+        # Safely get list or empty list, and extend full list with it.
+        combined.extend(val.get(key, []))
 
-    # Start with the centroid in the polygon's native CRS
-    initial_centroid = polygon.centroid
+    # Get sorted unique list.
+    unique_sorted = sorted(set(combined))
 
-    # Define a transformer to geographic coordinates
-    to_geo = Transformer.from_crs(polygon_crs, CRS("EPSG:4326"), always_xy=True)
-    lon, lat = to_geo.transform(initial_centroid.x, initial_centroid.y)
-
-    for _ in range(max_iterations):
-        # Define AEQD CRS centered on current (lon, lat)
-        laea_crs = CRS.from_proj4(f"+proj=laea +lat_0={lat} +lon_0={lon} +datum=WGS84 +units=m +no_defs")
-        from_crs_to_laea = Transformer.from_crs(polygon_crs, laea_crs, always_xy=True).transform
-        from_laea_to_geo = Transformer.from_crs(laea_crs, CRS("EPSG:4326"), always_xy=True).transform
-
-        # Reproject the polygon
-        projected_polygon = sh_transform(from_crs_to_laea, polygon)
-
-        # Compute projected centroid
-        projected_centroid = projected_polygon.centroid
-
-        # Transform back to geographic coordinates
-        new_lon, new_lat = sh_transform(from_laea_to_geo, projected_centroid).coords[0]
-
-        # Check for convergence
-        if abs(new_lon - lon) < tolerance and abs(new_lat - lat) < tolerance:
-            return new_lon, new_lat
-
-        lon, lat = new_lon, new_lat
-
-    return lon, lat
-
-def old():
-
-    # If raster CRS is not projected, define an azimuthal equal-area
-    # CRS centered on the raster.
-    if not CRS(raster_crs).is_projected:
-        
-        # Compute centroid in raster CRS.
-        # (Note: This isn’t ideal; it should be done iteratively with
-        # the new coordinate system to find the true centroid, but it
-        # should be good enough.)
-        #centroid = raster_geom.centroid
-        #lon, lat = centroid.x, centroid.y
-        lon_centroid, lat_centroid = geographic_true_centroid(
-                                        raster_geom, raster_crs,
-                                        tolerance = 1e-3,
-                                        max_iterations = 10)
-
-        print(lon_centroid, lat_centroid)
-
-        # Define azimuthal equal-area CRS centered on raster
-        laea_crs = CRS.from_proj4(f"+proj=laea +lat_0={lat_centroid} +lon_0={lon_centroid} +units=m +datum=WGS84 +no_defs")
-
-        # Reproject raster_geom and gdf_countries
-        polygons = polygons.to_crs(laea_crs)
-        raster_geom = gpd.GeoSeries([raster_geom], crs=raster_crs).to_crs(laea_crs).iloc[0]
-
-    # If the raster already has a projected coordinate system, use that.
-    else:
-
-        polygons = polygons.to_crs(raster_crs)
-    
-
-    import matplotlib.pyplot as plt
-    fig = plt.figure()
-    ax  = plt.gca()
-
-    polygons.plot(ax = ax)
-    #raster_geom.plot(ax = ax)
-    for geom in raster_geom.geoms:
-        ax.plot(*geom.exterior.xy)
-
-    ax.set_xlim([-600_000.0, 600_000.0])
-    ax.set_ylim([-600_000.0, 600_000.0])
-
-    plt.show()
-
-    import sys
-    sys.exit()
-
-    return
-
-def plot_geom_collection():
-
-    import matplotlib.pyplot as plt
-    fig = plt.figure()
-    ax  = plt.gca()
-
-    #from shapely.geometry import Point, LineString, Polygon, MultiPolygon, GeometryCollection
-
-    g = intersections_adm0.iloc[0].geometry
-    # Loop through the collection
-    for geom in g.geoms:
-        if isinstance(geom, Point):
-            ax.plot(*geom.xy, 'o', label='Point')
-    
-        elif isinstance(geom, LineString):
-            ax.plot(*geom.xy, '-', label='LineString')
-    
-        elif isinstance(geom, Polygon):
-            x, y = geom.exterior.xy
-            ax.fill(x, y, alpha=0.5, label='Polygon')
-    
-        elif isinstance(geom, MultiPolygon):
-            for poly in geom.geoms:
-                x, y = poly.exterior.xy
-                ax.fill(x, y, alpha=0.5, label='MultiPolygon part')
-
-    plt.show()
-
-    return
-
-def save_raster(output_path, array, profile, dtype='uint8'):
-    # Ensure profile is correctly updated
-    profile = profile.copy()
-    profile.update({
-        'driver': 'GTiff',
-        'dtype': dtype,
-        'count': 1,
-        'compress': 'lzw',
-        'nodata': array.fill_value if hasattr(array, 'fill_value') else None
-    })
-
-    with rasterio.open(output_path, 'w', **profile) as dst:
-        dst.write(array.filled(profile['nodata']), 1)
-
-    return
+    return unique_sorted
 
 # --- Main sentinel. -------------------------------
 def main():
@@ -1012,56 +1094,59 @@ def main():
     # Parse the command-line arguments.
     args = parse_args()
     dir_data = args.dir_data
+    dir_output = os.path.join(dir_data, 'code_output')
     print('')
 
-    # Create the output directory if it doesn’t already exist.
-    dir_out = make_output_dir(dir_data)
-
-    # Define file path for (vector) country polygons
-    # (also known as admin level 0 boundaries).
-    dir_geoBoundaries = os.path.join(dir_data, 'vector', 'admin_boundaries',
-                             'geoBoundaries')
-    path_adm0 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM0.gpkg')
-    path_adm1 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM1.gpkg')
-    #layer_name_adm1 = 'globalADM1'
-    #print("Loading admin boundary file {:}".format(path_adm0))
-    #gdf_adm0 = gpd.read_file(path_adm0)
-
-    # Load the (vector) protected area polygons.
-    path_PA_gpkg = os.path.join(
-                            dir_data, 'vector', 'protected_areas', 'WDPA',
-                            'WDPA_Jun2025_Public-polygons.gpkg')
-                    #'MYS', 'MY-12', 'Management_Units_(PAs-FRs).shp')
-    #PA_gpkg_layer_name = 'wdpa_polygons'
-
-    # Load the (raster) habitat suitability data.
-    name_raster = 'glm_pangosnewroads_seed333_1_1.tif'
-    path_raster = os.path.join(dir_data, 'raster', 'habitat_suitability', name_raster)
-
-    # Summarize the raster and determine which country polygons
-    # it intersects with.
-    intersections_adm0, list_of_adm0, intersections_adm1 = \
-            find_which_polygons_intersect_raster_wrapper(
-                            path_adm0, path_adm1, path_raster)
+    # Set up logging.
+    print = initialise_logging(dir_output)
     
-    # Bin the raster values into discrete ranges.
-    bins = [0.0, 0.25, 0.50, 0.75, 1.0]
-    results = dict()
-    dict_of_polygon_GDFs = {'whole'     : None,
-                            'country'   : intersections_adm0,
-                            'adm1-zone' : intersections_adm1}
-    polygon_id_field_dict = {'whole'    : None,
-                             'country'  : 'iso3',
-                             'adm1-zone': 'adm1_code'}
-    results = bin_raster_for_all_polygon_groups(
-                                    path_raster,
-                                    path_PA_gpkg,
-                                    bins,
-                                    dict_of_polygon_GDFs,
-                                    list_of_adm0,
-                                    polygon_id_field_dict)
+    # Load results and catalog, and clear out any old results.
+    catalog, results, path_results = \
+        load_results_and_catalog_and_remove_results_no_longer_in_catalog(
+                dir_output, dir_data)
 
-    return   
+    # Define paths for admin polygons and protected areas.
+    path_adm0, path_adm1, path_PA_gpkg = define_dataset_paths(dir_data)
+
+    # Loop through all the datasets in the catalog.
+    for _, dataset in catalog.iterrows():
+        
+        key = dataset['key']
+        print(80 * '=')
+        print('Processing dataset: {:}'.format(key))
+        print('')
+        if key in results.keys():
+            
+            print('Skipping processing for {:}, as the results file already has data for this dataset.'.format(key))
+            continue
+
+        # Do all the processing steps for this raster.
+        results[key] = find_intersections_and_do_binning_for_one_raster(
+                        dir_data, path_adm0, path_adm1, path_PA_gpkg,
+                        dataset['file_name'])
+
+    # Log the results.
+    logger.info("Final results:")
+    logger.info(json.dumps(results, indent=4, cls = custom_JSON_encoder))
+    
+    print('Results:')
+    print(results)
+
+    # Get a list of all the admin-0 and and admin-1 zones covered by
+    # all the rasters.
+    all_adm0 = get_unique_list_from_nested_attr(results, 'adm0_list')
+    all_adm1 = get_unique_list_from_nested_attr(results, 'adm1_list')
+    print('Admin-0 and admin-1 zones covered:')
+    print(all_adm0)
+    print(all_adm1)
+
+    # Save the results as a JSON file.
+    print('')
+    print("Saving to {:}".format(path_results))
+    with open(path_results, "w") as f:
+        json.dump(results, f, indent=4, cls = custom_JSON_encoder)
+    
+    return
 
 if __name__ == '__main__':
 
