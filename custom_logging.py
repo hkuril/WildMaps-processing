@@ -1,6 +1,10 @@
+import os
+from datetime import datetime
 import logging
 import sys
-from datetime import datetime
+
+from logger_store import log as shared_log  # Just to reference the name
+import logger_store  # For setting it
 
 class CustomFormatter(logging.Formatter):
     def format(self, record):
@@ -57,3 +61,9 @@ class LoggerWrapper:
 
     def critical(self, message, to_console=True, show_timestamp = True):
         self.log(logging.CRITICAL, message, to_console, show_timestamp)
+
+def initialise_logging(dir_output):
+    path_log = os.path.join(dir_output, datetime.now().strftime("log_%Y-%m-%d_%H-%M-%S.txt"))
+    logger_store.log = LoggerWrapper(path_log)
+    logger_store.log.info(f"Writing logs to {path_log}")
+
