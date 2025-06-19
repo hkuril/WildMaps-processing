@@ -1,73 +1,69 @@
-import hashlib
 import os
+import json
 
 import boto3
+from botocore.exceptions import ClientError
+from tqdm import tqdm
 
-def get_s3_etag(bucket, key, session):
-    """Return ETag of an object in S3, or None if it doesn't exist."""
-    #s3 = boto3.client('s3')
+def upload_to_aws(dir_path_local, bucket, key, overwrite):
+    session = boto3.Session(profile_name="habitat-maintainer")
     s3 = session.client('s3')
-    try:
-        response = s3.head_object(Bucket=bucket, Key=key)
-        return response['ETag'].strip('"')
-    except s3.exceptions.ClientError as e:
-        if e.response['Error']['Code'] == '404':
-            return None
-        else:
-            raise
 
-def compute_local_etag(filepath):
-    """
-    !!! Not used
-    Compute a local MD5 hash (single-part ETag equivalent)."""
-    hash_md5 = hashlib.md5()
-    with open(filepath, "rb") as f:
-        for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
-            hash_md5.update(chunk)
-    return hash_md5.hexdigest()
-
-def get_s3_metadata(bucket, key, session):
-    s3 = session.client('s3')
-    try:
-        response = s3.head_object(Bucket=bucket, Key=key)
-        return {
-            "ETag": response['ETag'].strip('"'),
-            "Size": response['ContentLength'],
-            "LastModified": response['LastModified']
-        }
-    except s3.exceptions.ClientError as e:
-        if e.response['Error']['Code'] == '404':
-            return None
-        else:
-            raise
-
-def upload_to_aws(local_path, bucket, key):
-    """Upload to S3 only if content has changed."""
-    print(f"Checking for changes in S3: s3://{bucket}/{key}")
-
-    session = boto3.Session(profile_name = "habitat-maintainer")
-
-    metadata = get_s3_metadata(bucket, key, session)
-    local_size = os.path.getsize(local_path)
-
-    if metadata and metadata["Size"] == local_size:
-        print("S3 already has same-size file. Skipping upload.")
+    local_manifest_path = os.path.join(dir_path_local, '.tile_manifest.json')
+    if not os.path.isfile(local_manifest_path):
+        print("Local manifest file not found:", local_manifest_path)
         return
 
-    #local_etag = compute_local_etag(local_path)
-    #s3_etag = get_s3_etag(bucket, key, session)
+    # Check if remote manifest exists
+    remote_manifest_key = f"{key}/.tile_manifest.json"
+    skip_upload = False
 
-    #if s3_etag == local_etag:
-    #    print("S3 already has identical file. Skipping upload.")
-    #    return
+    if overwrite != 'yes':
+        try:
+            remote_manifest_obj = s3.get_object(Bucket=bucket, Key=remote_manifest_key)
+            remote_manifest = remote_manifest_obj['Body'].read().decode('utf-8')
+            with open(local_manifest_path, 'r') as f:
+                local_manifest = f.read()
+            if remote_manifest.strip() == local_manifest.strip():
+                print("Manifest matches remote copy. Skipping upload.")
+                skip_upload = True
+        except ClientError as e:
+            if e.response['Error']['Code'] != 'NoSuchKey':
+                raise
+            print("Remote manifest not found. Proceeding with upload.")
 
-    print(f"Uploading to s3://{bucket}/{key}")
-    #s3 = boto3.client('s3')
-    s3 = session.client("s3")
-    s3.upload_file(local_path, bucket, key,
-                       ExtraArgs={
-                            "ContentType": "image/tiff",
-                            "CacheControl": "public, max-age=86400"
-                            }
-                   )
-    print(f"Uploaded to s3://{bucket}/{key}")
+    if skip_upload:
+        return
+
+    # Walk through all files in dir_path_local
+    file_paths = []
+    for root, _, files in os.walk(dir_path_local):
+        for file in files:
+            full_path = os.path.join(root, file)
+            relative_path = os.path.relpath(full_path, dir_path_local)
+            if not (full_path.endswith('.png') or full_path.endswith('.json')):
+                continue
+            s3_key = f"{key}/{relative_path.replace(os.sep, '/')}"
+            file_paths.append((full_path, s3_key))
+
+    print(f"Uploading {len(file_paths)} files to s3://{bucket}/{key}/")
+    for full_path, s3_key in tqdm(file_paths, desc="Uploading tiles", unit="file"):
+        
+        # Set the content type.
+        if full_path.endswith('.json'):
+            content_type = 'application/json'
+        elif full_path.endswith('.png'):
+            content_type = 'image/png'
+        else: 
+            content_type = None
+
+        if content_type is not None:
+            extra_args  = {'ContentType': content_type}
+        else:
+            extra_args = None
+
+        s3.upload_file(Filename=full_path, Bucket=bucket, Key=s3_key,
+                       ExtraArgs = extra_args,
+                       )
+
+    print("Upload complete.")

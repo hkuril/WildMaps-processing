@@ -1,159 +1,196 @@
+import json
 import os
+import shlex
 import subprocess
 import tempfile
 
-import rasterio
-from rasterio.warp import calculate_default_transform
-from tqdm import tqdm
-
 from handle_aws import upload_to_aws
 
-def run_command(cmd):
-    """Print and run a shell command."""
-    print("Running command:", " ".join(cmd))
-    subprocess.run(cmd, check=True)
+def run_cmd(cmd):
+    if isinstance(cmd, list):
+        printable = ' '.join(shlex.quote(str(c)) for c in cmd)
+    else:
+        printable = cmd
+    print(f"\n>>> Running: {printable}\n")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("Command failed with error:")
+        print(result.stderr)
+        raise subprocess.CalledProcessError(result.returncode, cmd)
+    if result.stdout:
+        print(result.stdout)
 
-def old():
-    def is_cog(path):
-        """Check if the file is a COG using gdalinfo."""
-        cmd = ["gdalinfo", "-json", path]
-        print("Running command:", " ".join(cmd))
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        return '"COG": "YES"' in result.stdout
-    
-    def convert_to_regular_geotiff(cog_path, tmp_dir, band_index):
-        """Convert a COG to a regular single-band GeoTIFF."""
-        out_path = os.path.join(tmp_dir, "regular_band.tif")
-        extract_single_band(cog_path, out_path, band_index)
-        return out_path
+def create_tile_manifest(directory, output_path):
+    manifest = {}
+    for root, _, files in os.walk(directory):
+        for f in files:
+            if not f.endswith(".png"):
+                continue
+            full_path = os.path.join(root, f)
+            rel_path = os.path.relpath(full_path, directory)
+            size = os.path.getsize(full_path)
+            manifest[rel_path] = size
+    with open(output_path, "w") as f:
+        json.dump(manifest, f)
 
-def extract_single_band(src_path, dst_path, band_index):
-    """Extract a single band from a TIFF using gdal_translate."""
-    cmd = ["gdal_translate", "-b", str(band_index), src_path, dst_path]
-    run_command(cmd)
+def compare_manifest(directory, manifest_path):
+    if not os.path.exists(manifest_path):
+        return False
+    with open(manifest_path) as f:
+        saved = json.load(f)
+    current = {}
+    for root, _, files in os.walk(directory):
+        for f in files:
+            if not f.endswith(".png"):
+                continue
+            full_path = os.path.join(root, f)
+            rel_path = os.path.relpath(full_path, directory)
+            size = os.path.getsize(full_path)
+            current[rel_path] = size
+    return saved == current
 
-def get_target_resolution_for_zoom(zoom_level):
-    """Approximate resolution (in meters per pixel) for a given Web Mercator zoom level."""
-    initial_res = 156543.03  # meters/pixel at zoom level 0
-    return initial_res / (2 ** zoom_level)
+def extract_band_and_generate_tiles(input_tiff, band_index, max_zoom,
+            output_dir, data_min, data_max, color_ramp_file, overwrite):
 
-def get_native_resolution(geotiff_path):
-    """Get native resolution in meters, reprojecting if input is in degrees."""
-    with rasterio.open(geotiff_path) as src:
-        if src.crs.is_geographic:
-            dst_crs = "EPSG:3857"
-            transform, width, height = calculate_default_transform(
-                src.crs, dst_crs, src.width, src.height, *src.bounds)
-            res_x = transform.a
-            res_y = -transform.e
-            return max(res_x, res_y)
-        else:
-            return max(src.res)
+    # Check if the manifest file exists, and if it matches, skip the
+    # tile generation unless overwrite is requested.
+    manifest_file = os.path.join(output_dir, ".tile_manifest.json")
+    if (os.path.exists(output_dir) and
+        compare_manifest(output_dir, manifest_file) and overwrite == 'no'):
+        print("Tiles match manifest file {:}. Skipping generation.".format(
+            manifest_file))
+        return
 
-def build_overviews(geotiff_path, zoom_level):
-    """Build overviews for the GeoTIFF based on web zoom level."""
-    native_res = get_native_resolution(geotiff_path)
-    target_res = get_target_resolution_for_zoom(zoom_level)
+    # Define temporary file paths for intermediate TIFF files.
+    tmp_tif = dict()
+    tmp_tif_list = ['scaled', 'scaled_with_alpha', 'alpha', 'color',
+                    'color_with_alpha']
+    for name in tmp_tif_list:
+        tmp_tif[name] = tempfile.NamedTemporaryFile(suffix='.tif', delete=False)
+        tmp_tif[name].close()
 
-    factor = 2
-    overviews = []
-    while native_res * factor < target_res:
-        overviews.append(factor)
-        factor *= 2
-
-    if overviews:
-        cmd = ["gdaladdo", "-r", "average", geotiff_path] + list(map(str, overviews))
-        run_command(cmd)
-
-def create_cog(input_tif, output_cog):
-    """Create a COG using gdal_translate."""
-    cmd = [
-        "gdal_translate", input_tif, output_cog,
-        "-of", "COG",
-        "-co", "COMPRESS=LZW",
-        "-co", "TILING_SCHEME=GoogleMapsCompatible"
+    # Scale to 8-bit (required to generate image tiles), i.e. integer from
+    # 0 to 255. 
+    scale_cmd = [
+        "gdal_translate",
+        "-b", str(band_index),
+        "-ot", "Byte",
+        "-scale", str(data_min), str(data_max), "0", "255",
+        input_tiff,
+        tmp_tif['scaled'].name
     ]
-    run_command(cmd)
+    run_cmd(scale_cmd)
 
-def prepare_cog(input_path, zoom_level, output_cog_path, band_index=1):
+    # Add alpha, based on null pixels, as a second channel.
+    warp_cmd = [
+        "gdalwarp",
+        "-dstalpha",
+        tmp_tif['scaled'].name,
+        tmp_tif['scaled_with_alpha'].name
+    ]
+    run_cmd(warp_cmd)
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        #print("Checking input file...")
-        #if is_cog(input_path):
-        #    print("Input is COG — converting to regular single-band GeoTIFF...")
-        #    regular_path = convert_to_regular_geotiff(input_path, tmp_dir, band_index)
-        #else:
-        #    print("Input is not COG — extracting single band...")
-        #    regular_path = os.path.join(tmp_dir, "regular_band.tif")
-        #    extract_single_band(input_path, regular_path, band_index)
+    # Get alpha channel as a separate tif.
+    cmd = ["gdal_translate", "-b", "2",
+            tmp_tif['scaled_with_alpha'].name,
+            tmp_tif['alpha'].name]
+    run_cmd(cmd)
 
-        # Extract the required band.
-        print("Extracting band {:}".format(band_index))
-        regular_path = os.path.join(tmp_dir, "regular_band.tif")
-        extract_single_band(input_path, regular_path, band_index)
+    # Apply color ramp to the 8-bit tiff.
+    print(f"Applying color ramp from {color_ramp_file}...")
+    color_cmd = [
+    "gdaldem", "color-relief",
+    tmp_tif['scaled'].name,
+    color_ramp_file,
+    tmp_tif['color'].name,
+    ]
+    run_cmd(color_cmd)
 
-        print(f"Generating overviews for zoom level {zoom_level}...")
-        build_overviews(regular_path, zoom_level)
+    # Apply alpha to colored tiff and as a fourth channel.
+    cmd = [
+        "gdal_merge.py", "-separate", "-o",
+        tmp_tif['color_with_alpha'].name,
+        tmp_tif['color'].name,
+        tmp_tif['alpha'].name
+        ]
+    run_cmd(cmd)
 
-        print("Creating COG with appropriate tiling...")
-        create_cog(regular_path, output_cog_path)
+    # Modify metadata to ensure that fourth channel is treated as alpha.
+    cmd = [
+            "gdal_edit.py", "-colorinterp_4", "alpha",
+            tmp_tif['color_with_alpha'].name
+            ]
+    run_cmd(cmd)
 
-        print(f"Done. COG ready at: {output_cog_path}")
+    # Generate the tiles from the four-channel TIFF.
+    # Need to use to --xyz tile order convention for compatibility with 
+    # MapLibre GL.
+    # bilinear interpolation is suitable for continuous data.
+    print(f"Generating tiles up to zoom level {max_zoom} in {output_dir}...")
+    gdal2tiles_cmd = [
+        "gdal2tiles.py",
+        "--xyz",
+        "-z", f"0-{max_zoom}",
+        "-r", "bilinear",
+        tmp_tif['color_with_alpha'].name,
+        output_dir
+    ]
+    run_cmd(gdal2tiles_cmd)
 
-def prepare_cog_wrapper(dir_data, raster_subfolder, raster_input_file_name,
+    # Create the tile manifest.
+    print("Tile generation complete. Saving manifest to {:}".format(
+        manifest_file))
+    create_tile_manifest(output_dir, manifest_file)
+
+    # Cleanup (remove temporary files).
+    for name in tmp_tif_list:
+        os.unlink(tmp_tif[name].name)
+
+    return
+
+def prepare_raster_tiles_wrapper(dir_data, raster_subfolder,
+                        raster_input_file_name,
                         raster_key, band_index, max_zoom, overwrite,
-                        aws_bucket):
+                        aws_bucket, raster_min, raster_max, name_color_ramp):
 
     # Define file paths.
     path_raster = os.path.join(dir_data, 'raster', 'SDM',
                                raster_subfolder, raster_input_file_name)
-    subdir_cloud_raster = '/'.join(['code_output', 'cloud_raster',
+    subdir_raster_tiles = '/'.join(['code_output', 'raster_tiles',
                                    'SDM', raster_subfolder])
-    dir_cloud_raster = os.path.join(dir_data, subdir_cloud_raster)
-    name_cloud_raster = '{:}_zoom_{:02d}.tif'.format(raster_key, max_zoom)
-    path_cloud_raster = os.path.join(dir_cloud_raster, name_cloud_raster)
+    dir_raster_tiles = os.path.join(dir_data, subdir_raster_tiles)
+    name_raster_tiles = '{:}_zoom_{:02d}'.format(raster_key, max_zoom)
+    dir_raster_tiles = os.path.join(dir_raster_tiles, name_raster_tiles)
+    path_color_ramp = os.path.join(dir_data, 'colour_ramps',
+                                   '{:}.txt'.format(name_color_ramp))
 
-    # Check if the output file already exists.
-    if (os.path.exists(path_cloud_raster)) and (overwrite == 'no'):
+    # Create tiles (if they do not already exist).
+    manifest_file = extract_band_and_generate_tiles(
+        input_tiff = path_raster,
+        band_index = band_index,
+        max_zoom = max_zoom,
+        output_dir = dir_raster_tiles,
+        data_min = raster_min,
+        data_max = raster_max,
+        color_ramp_file = path_color_ramp,
+        overwrite = overwrite,
+    )
 
-        print("The cloud-optimised geoTIFF file {:} already exists, "
-              "skipping file creation...".format(path_cloud_raster))
-
-    else:
-
-        # Make the output directory if it doesn’t already exist..
-        print("Making directory {:} (if it doesn’t already exist).".format(
-            dir_cloud_raster))
-        os.makedirs(dir_cloud_raster, exist_ok = True)
-
-        # Create a COG from the existing GeoTIFF.
-        prepare_cog(
-            input_path = path_raster,
-            zoom_level = max_zoom,
-            output_cog_path = path_cloud_raster,
-            band_index = band_index,
-            )
-    
-    # Upload to AWS. (If the file is already there, no transfer will be
+    # Upload to AWS. (If the tiles are already there, no transfer will be
     # done.)
-    aws_key = '/'.join([subdir_cloud_raster , name_cloud_raster])
-    print(aws_bucket, aws_key)
-
-    upload_to_aws(path_cloud_raster, aws_bucket, aws_key)
+    aws_key = '/'.join([subdir_raster_tiles, name_raster_tiles])
+    upload_to_aws(dir_raster_tiles, aws_bucket, aws_key, overwrite)
 
     return
 
-def test():
-
-    prepare_cog(
-        input_path="../data/raster/SDM/burns_2025/sumatra_sambar_sdm_2021.tif",
-        zoom_level=10,
-        output_cog_path="../data/code_output/cloud_raster/SDM/burns_2025/sumatra_sambar_sdm_2021.tif",
-        band_index = 1,
-        )
-
-    return
-
-if __name__ == '__main__':
-
-    test()
+# Example usage
+if __name__ == "__main__":
+    extract_band_and_generate_tiles(
+        input_tiff="path/to/input.tif",
+        band_index=1,
+        max_zoom=10,
+        output_dir="output_tiles",
+        data_min=0,       # replace with real min
+        data_max=100,     # replace with real max
+        color_ramp_file="ramp.txt"
+    )
