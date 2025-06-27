@@ -1,0 +1,125 @@
+import argparse
+import os
+
+import pandas as pd
+
+from handle_aws import aws_bucket, upload_to_aws
+from prepare_raster_for_hosting import extract_band_and_generate_tiles
+from prepare_vector_for_hosting import prepare_vector_tiles_wrapper
+
+def parse_args():
+
+    parser = argparse.ArgumentParser(description="Process habitat raster files.")
+    parser.add_argument('dir_data',
+                        type=str,
+                        help='File path to the directory containing the raster files.')
+
+    args = parser.parse_args()
+
+    return args
+
+def load_basemap_catalog(dir_data):
+
+    # The catalog tells us which files need to be processed.
+    path_catalog = os.path.join(dir_data, 'basemap_catalog.csv')
+
+    catalog = pd.read_csv(path_catalog)
+    catalog.set_index('key', inplace = True)
+    
+    # Do some data validation.
+    yes_no_cols = ['needs_ocean_clip', 'overwrite']
+    for col in yes_no_cols:
+        assert catalog[col].isin(['yes', 'no']).all()
+    assert catalog['type'].isin(['raster', 'vector']).all()
+
+    return catalog 
+
+def prepare_raster_basemap_layer(aws_bucket, dir_data, key,
+                                 layer, max_zoom):
+
+    if layer['needs_ocean_clip'] == 'yes':
+
+        raise NotImplementedError('Ocean clipping not implemented')
+    
+    # Define input and output paths.
+    path_raster_in = os.path.join(dir_data, 'raster',
+                                  layer['folder'], layer['input_file_name'])
+    # 
+    name_tiles_out = '{:}_{:02d}'.format(key, max_zoom)
+    subdir_tiles = '/'.join(['code_output', 'raster_tiles', layer['folder']])
+    dir_tiles_out = os.path.join(dir_data,  subdir_tiles, name_tiles_out)
+    #
+    path_colour_ramp = os.path.join(dir_data, 'colour_ramps',
+                                    layer['file_colour_ramp'])
+
+    extract_band_and_generate_tiles(path_raster_in, layer['band'], max_zoom,
+            dir_tiles_out, layer['val_min'], layer['val_max'],
+            path_colour_ramp, layer['resample_method'], layer['overwrite'])
+
+    # Upload to AWS. (If the tiles are already there, no transfer will be
+    # done.)
+    aws_key = '/'.join([subdir_tiles, name_tiles_out])
+    upload_to_aws(dir_tiles_out, aws_bucket, aws_key, layer['overwrite'])
+
+    return
+
+def prepare_vector_basemap_layer(aws_bucket, dir_data, key, layer, max_zoom):
+
+    if layer['needs_ocean_clip'] == 'yes':
+
+        raise NotImplementedError('Ocean clipping not implemented')
+    
+    # Define input and output paths.
+    path_vector_in = os.path.join(dir_data, 'vector',
+                                  layer['folder'], layer['input_file_name'])
+    # 
+    name_tiles_out = '{:}_{:02d}'.format(key, max_zoom)
+    subdir_tiles = '/'.join(['code_output', 'vector_tiles', layer['folder']])
+    dir_tiles_out = os.path.join(dir_data,  subdir_tiles, name_tiles_out)
+
+    attribs_to_keep = layer['attribs_to_keep'].split(';')
+
+    prepare_vector_tiles_wrapper(
+            path_vector_in, dir_tiles_out, subdir_tiles, name_tiles_out,
+            max_zoom, attribs_to_keep, layer['overwrite'])
+
+    #extract_band_and_generate_tiles(path_vector_in, layer['band'], max_zoom,
+    #        dir_tiles_out, layer['val_min'], layer['val_max'],
+    #        path_colour_ramp, layer['resample_method'], layer['overwrite'])
+
+    ## Upload to AWS. (If the tiles are already there, no transfer will be
+    ## done.)
+    #aws_key = '/'.join([subdir_tiles, name_tiles_out])
+    #upload_to_aws(dir_tiles_out, aws_bucket, aws_key, layer['overwrite'])
+
+    return
+
+def main():
+
+    max_zoom = 6 
+
+    # Parse the command-line arguments.
+    args = parse_args()
+    dir_data = args.dir_data
+    #dir_output = os.path.join(dir_data, 'code_output')
+    
+    catalog = load_basemap_catalog(dir_data)
+    
+    # 
+    for key, layer in catalog.iterrows():
+        
+        if layer['type'] == 'raster':
+
+            prepare_raster_basemap_layer(aws_bucket, dir_data, key,
+                                         layer, max_zoom)
+
+        else:
+
+            prepare_vector_basemap_layer(aws_bucket, dir_data, key,
+                                         layer, max_zoom)
+
+    return
+
+if __name__ == '__main__':
+
+    main()

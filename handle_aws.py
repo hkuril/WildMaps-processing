@@ -5,6 +5,8 @@ import boto3
 from botocore.exceptions import ClientError
 from tqdm import tqdm
 
+aws_bucket = "habitat-web-map"
+
 def upload_to_aws(dir_path_local, bucket, key, overwrite):
     session = boto3.Session(profile_name="habitat-maintainer")
     s3 = session.client('s3')
@@ -41,7 +43,10 @@ def upload_to_aws(dir_path_local, bucket, key, overwrite):
         for file in files:
             full_path = os.path.join(root, file)
             relative_path = os.path.relpath(full_path, dir_path_local)
-            if not (full_path.endswith('.png') or full_path.endswith('.json')):
+            if not (full_path.endswith('.png') or
+                    full_path.endswith('.json') or
+                    full_path.endswith('.pbf')
+                    ):
                 continue
             s3_key = f"{key}/{relative_path.replace(os.sep, '/')}"
             file_paths.append((full_path, s3_key))
@@ -54,11 +59,15 @@ def upload_to_aws(dir_path_local, bucket, key, overwrite):
             content_type = 'application/json'
         elif full_path.endswith('.png'):
             content_type = 'image/png'
+        elif full_path.endswith('.pbf'):
+            content_type = 'application/x-protobuf'
         else: 
             content_type = None
 
         if content_type is not None:
             extra_args  = {'ContentType': content_type}
+            if content_type == 'application/x-protobuf':
+                extra_args['ContentEncoding'] = 'gzip'
         else:
             extra_args = None
 

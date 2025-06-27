@@ -29,6 +29,7 @@ from shapely.ops import transform as sh_transform, unary_union
 #from custom_logging import LoggerWrapper
 import logger_store
 from custom_logging import initialise_logging
+from handle_aws import aws_bucket
 #from prepare_raster_for_hosting import prepare_cog_wrapper
 from prepare_raster_for_hosting import prepare_raster_tiles_wrapper 
 from save_admin_boundary_metadata import generate_admin_boundary_json_wrapper
@@ -1163,8 +1164,8 @@ def main():
                                          all_adm0, all_adm1)
 
     # Create the cloud-optimised raster files.
-    max_zoom = 6
-    aws_bucket = "habitat-web-map"
+    #max_zoom = 6
+    max_zoom = 'auto'
     color_ramp_name = 'viridis_0_to_255__256_stops'
     for dataset, raster_info in results.items():
 
