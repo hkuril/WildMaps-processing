@@ -1,6 +1,6 @@
 '''
 Example:
-python3 generate_colour_ramp_file_for_raster_tiles.py viridis 1000 1 254 ../data/colour_ramps/viridis_1_to_254__1000_stops.txt
+python3 generate_colour_ramp_file_for_raster_tiles.py plasma 1000 1 254 ../data/colour_ramps/plasma_1_to_254__1000_stops_log.txt geomspace
 '''
 import numpy as np
 import matplotlib.pyplot as plt
@@ -53,7 +53,7 @@ def generate_palette(colormap_name: str, num_stops: int, vmin: float, vmax: floa
 
 if __name__ == "__main__":
     if len(sys.argv) != 7:
-        print("Usage: python generate_palette.py <colormap> <num_stops> <vmin> <vmax> <output_path> <type_>")
+        print("Usage: python generate_palette.py <colormap> <num_stops> <vmin> <vmax> <output_path> <type_> (linspace or geomspace)")
         sys.exit(1)
 
     colormap_name = sys.argv[1]

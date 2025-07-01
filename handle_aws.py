@@ -5,16 +5,29 @@ import boto3
 from botocore.exceptions import ClientError
 from tqdm import tqdm
 
-aws_bucket = "habitat-web-map"
+#aws_bucket = "habitat-web-map"
+aws_bucket = "wildcru-wildmaps"
 
 def upload_to_aws(dir_path_local, bucket, key, overwrite):
-    session = boto3.Session(profile_name="habitat-maintainer")
+    #session = boto3.Session(profile_name="habitat-maintainer")
+    session = boto3.Session(profile_name="WildMapsMaintainer")
     s3 = session.client('s3')
+
+    #try:
+    #    response = s3.list_buckets()
+    #    print("Available buckets:")
+    #    for bucket in response['Buckets']:
+    #        print(f"  - {bucket['Name']}")
+    #except Exception as e:
+    #    print(f"Can't list buckets: {e}")
 
     local_manifest_path = os.path.join(dir_path_local, '.tile_manifest.json')
     if not os.path.isfile(local_manifest_path):
         print("Local manifest file not found:", local_manifest_path)
         return
+
+    #partial_sync_mode = ('land_use' in key)
+    partial_sync_mode = False
 
     # Check if remote manifest exists
     remote_manifest_key = f"{key}/.tile_manifest.json"
@@ -35,7 +48,10 @@ def upload_to_aws(dir_path_local, bucket, key, overwrite):
             print("Remote manifest not found. Proceeding with upload.")
 
     if skip_upload:
-        return
+        if partial_sync_mode:
+            print('Partial sync mode enabled, continuing despite presence of manifest.')
+        else:
+            return
 
     # Walk through all files in dir_path_local
     file_paths = []
@@ -70,9 +86,20 @@ def upload_to_aws(dir_path_local, bucket, key, overwrite):
                 extra_args['ContentEncoding'] = 'gzip'
         else:
             extra_args = None
+        
+        if not partial_sync_mode:
 
-        s3.upload_file(Filename=full_path, Bucket=bucket, Key=s3_key,
-                       ExtraArgs = extra_args,
-                       )
+            s3.upload_file(Filename=full_path, Bucket=bucket, Key=s3_key,
+                           ExtraArgs = extra_args,
+                           )
+        else:
+
+            try:
+                s3.head_object(Bucket=bucket, Key=s3_key)
+                #print("File already exists!")
+            except ClientError as e:
+                if e.response['Error']['Code'] == '404':
+                    # File doesn't exist, safe to upload
+                    s3.upload_file(Filename=full_path, Bucket=bucket, Key=s3_key, ExtraArgs=extra_args)
 
     print("Upload complete.")

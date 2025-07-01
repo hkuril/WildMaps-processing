@@ -19,7 +19,8 @@ from rasterio.enums import Resampling
 from rasterio.features import rasterize, shapes
 from rasterio.io import MemoryFile
 from rasterio.mask import mask as rasterio_mask
-from rasterio.warp import calculate_default_transform, reproject
+from rasterio.warp import (calculate_default_transform, reproject,
+                            transform_bounds)
 from rasterio.windows import from_bounds, transform
 from shapely.geometry import (GeometryCollection, MultiPolygon, Polygon,
                               shape)
@@ -77,6 +78,9 @@ def summarize_raster(src, data):
     mean_val = np.mean(non_null_data)
     median_val = np.median(non_null_data)
 
+    if null_fraction < 0.1:
+        warnings.warn("Raster has less than 10% null values, check they were read correctly.")
+
     summary = {
         'projection': str(projection),
         'dimensions (rows, cols)': dimensions,
@@ -99,8 +103,32 @@ def load_dataset_catalog(path_catalog):
     
     logger_store.log.info('Loading catalog from {:}'.format(path_catalog))
     catalog = pd.read_csv(path_catalog)
-    catalog.set_index('key', inplace = True)
 
+    def create_key(df, columns):
+        """Create a key by joining specified columns with underscores and cleaning."""
+
+        return (
+            df[columns]
+            .astype(str)
+            .agg('_'.join, axis=1)
+            .str.replace(r'[\W\s]+', '_', regex=True)
+            .str.strip('_')
+        )
+
+    catalog['key'] = create_key(catalog, ['folder', 'subregion', 'common_name'])
+    
+    # Handle 'subregion' == 'none' cases
+    none_mask = catalog['subregion'] == 'none'
+    catalog.loc[none_mask, 'key'] = create_key(
+        catalog.loc[none_mask],
+        ['folder', 'region', 'common_name']
+    )
+
+    catalog.set_index('key', inplace = True)
+    
+    catalog = catalog[catalog['ignore'] == 'no']
+    catalog.drop(columns = 'ignore', inplace = True)
+   
     return catalog 
 
 def load_results(path_results):
@@ -154,30 +182,48 @@ def define_dataset_paths(dir_data):
     # (also known as admin level 0 boundaries).
     dir_geoBoundaries = os.path.join(dir_data, 'vector', 'admin_boundaries',
                              'geoBoundaries')
-    path_adm0 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM0.gpkg')
-    path_adm1 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM1.gpkg')
+    path_adm0 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM0_repaired_twice.gpkg')
+    path_adm1 = os.path.join(dir_geoBoundaries, 'geoBoundariesCGAZ_ADM1_repaired_twice.gpkg')
 
     # Load the (vector) protected area polygons.
     path_PA_gpkg = os.path.join(
                             dir_data, 'vector', 'protected_areas', 'WDPA',
                             'WDPA_Jun2025_Public-polygons.gpkg')
 
-    return path_adm0, path_adm1, path_PA_gpkg
+    path_landuse = os.path.join(dir_data, 'raster', 'land_use',
+                    'copernicus',
+                    'copernicus_clms_land_cover_global_100m_epsg4326.tif')
+
+    return path_adm0, path_adm1, path_PA_gpkg, path_landuse
 
 class custom_JSON_encoder(json.JSONEncoder):
-    '''
-    This class helps withsaving certain datatypes to JSON (such as np arrays).
-    '''
     def default(self, obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         if isinstance(obj, (np.integer, np.floating)):
             return obj.item()
         return super().default(obj)
+    
+    def iterencode(self, obj, _one_shot=False):
+        # Convert all keys before any encoding happens
+        obj = self._convert_keys_recursive(obj)
+        return super().iterencode(obj, _one_shot)
+    
+    def _convert_keys_recursive(self, obj):
+        if isinstance(obj, dict):
+            return {
+                (k.item() if isinstance(k, (np.integer, np.floating)) else k): self._convert_keys_recursive(v)
+                for k, v in obj.items()
+            }
+        elif isinstance(obj, (list, tuple)):
+            return [self._convert_keys_recursive(item) for item in obj]
+        else:
+            return obj
 
 # --- Determine polygon intersections with the raster -------------------------
 def find_intersections_and_do_binning_for_one_raster(dir_data, path_adm0,
-        path_adm1, path_PA_gpkg, raster_subfolder, raster_file_name,
+        path_adm1, path_PA_gpkg, path_landuse, raster_subfolder,
+        raster_file_name,
         raster_band, scale_factor):
 
     results = dict()
@@ -186,7 +232,7 @@ def find_intersections_and_do_binning_for_one_raster(dir_data, path_adm0,
     #name_raster = 'glm_pangosnewroads_seed333_1_1.tif'
     path_raster = os.path.join(dir_data, 'raster', 'SDM',
                                raster_subfolder, raster_file_name)
-
+    
     # Summarize the raster and determine which country polygons
     # it intersects with.
     intersections_adm0, list_of_adm0, intersections_adm1, list_of_adm1,\
@@ -198,13 +244,16 @@ def find_intersections_and_do_binning_for_one_raster(dir_data, path_adm0,
     bins = [0.0, 0.25, 0.50, 0.75, 1.0]
     dict_of_polygon_GDFs = {'whole'     : None,
                             'country'   : intersections_adm0,
-                            'adm1-zone' : intersections_adm1}
+                            'adm1-zone' : intersections_adm1,
+                            }
     polygon_id_field_dict = {'whole'    : None,
                              'country'  : 'iso3',
-                             'adm1-zone': 'adm1_code'}
+                             'adm1-zone': 'adm1_code',
+                             }
     results = bin_raster_for_all_polygon_groups(
                                     path_raster,
                                     path_PA_gpkg,
+                                    path_landuse,
                                     bins,
                                     dict_of_polygon_GDFs,
                                     list_of_adm0,
@@ -492,7 +541,8 @@ def apply_thresholds_to_discard_intersection_areas(intersections):
     return intersections
 
 # --- Binning the raster values -----------------------------------------------
-def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins,
+def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg,
+    path_landuse, bins,
     dict_of_polygon_GDFs, adm0_list, polygon_id_field_dict,
     raster_band, scale_factor):
 
@@ -515,7 +565,7 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins,
         if crs is None or crs.is_geographic:
 
             # Reproject.
-            dst_profile, dst_crs, dst_raster_data = \
+            dst_profile, dst_crs, dst_raster_data, centroid = \
                     reproject_raster_wrapper(raster_data, raster_src, profile)
 
             # Overwrite values.
@@ -525,6 +575,23 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins,
 
             # Replace raster_src with a new in-memory raster.
             raster_src = make_in_memory_raster(raster_data, profile)
+
+    # Clip, reproject and align the land use raster.
+    # Use mode resampling for categorical data.
+    # This assumes the landuse raster has a geographical projection.
+    landuse_clip_buffer_degrees = 1.0
+    logger_store.log.info('Clipping, reprojecting and aligning landuse raster.')
+    landuse_data, landuse_profile = reproject_to_match(raster_src,
+                path_landuse,
+                resampling = Resampling.mode, 
+                buffer = landuse_clip_buffer_degrees)
+    landuse_src = make_in_memory_raster(landuse_data, landuse_profile)
+
+    #from plot_categorical_data import display_categorical_data 
+    #display_categorical_data(landuse_data, '../data/un_lcc_color_scheme.csv')
+
+    #import sys
+    #sys.exit()
 
     ## Calculate the pixel size and pixel counts.
     #(   pixel_width_metres, pixel_height_metres, pixel_area_km2,
@@ -568,6 +635,7 @@ def bin_raster_for_all_polygon_groups(path_raster, path_PA_gpkg, bins,
                             raster_src, raster_data,
                             scale_factor,
                             bins, PA_mask,
+                            landuse_src,
                             polygon_id_field_dict[polygons_name],
                             polygons_GDF = polygons_GDF,
                             polygons_name = polygons_name)
@@ -587,7 +655,7 @@ def reproject_raster_wrapper(raster_data, raster_src, profile):
 
     # Based on the geographical location of the raster, we 
     # define a suitable projected coordinate system.
-    dst_crs = get_suitable_regional_projection_for_raster(
+    dst_crs, centroid = get_suitable_regional_projection_for_raster(
                     raster_data, raster_src)
     logger_store.log.info("Reprojecting raster to {:}".format(dst_crs))
 
@@ -604,13 +672,95 @@ def reproject_raster_wrapper(raster_data, raster_src, profile):
     #save_raster(path_raster_out_tmp, raster_data, dst_profile,
     #            dtype=raster_data.dtype)
 
-    return dst_profile, dst_crs, dst_raster_data
+    return dst_profile, dst_crs, dst_raster_data, centroid
 
 def make_in_memory_raster(data, profile):
     memfile = MemoryFile()
     with memfile.open(**profile) as dataset:
         dataset.write(data, 1)
     return memfile.open()
+
+def reproject_to_match(raster_src, path_second_raster, resampling=Resampling.nearest, buffer=0.01):
+    """
+    Reproject a second raster to match the extent, projection, and grid of a reference raster.
+    Only processes the overlapping region for efficiency.
+
+    Parameters:
+    -----------
+    raster_src : rasterio.DatasetReader
+        Open rasterio dataset reader for the reference raster
+    path_second_raster : str
+        Path to the raster that needs to be reprojected
+    resampling : rasterio.warp.Resampling, optional
+        Resampling method to use (default: nearest)
+    buffer : float, optional
+        Buffer to add around bounds to avoid edge effects (default: 0.01)
+
+    Returns:
+    --------
+    tuple : (reprojected_data, profile)
+        reprojected_data : numpy.ndarray
+            The reprojected raster data
+        profile : dict
+            Rasterio profile dict for the reprojected data
+    """
+    # Get reference properties
+    ref_transform = raster_src.transform
+    ref_crs = raster_src.crs
+    ref_shape = (raster_src.height, raster_src.width)
+    ref_bounds = raster_src.bounds
+
+    # Create the output profile based on reference raster
+    profile = raster_src.profile.copy()
+
+    with rasterio.open(path_second_raster) as second_src:
+        # Update profile with second raster's data type and nodata
+        profile.update({
+            'dtype': second_src.dtypes[0],
+            'nodata': second_src.nodata,
+            'count': 1  # assuming single band, adjust if needed
+        })
+
+        # Transform the reference bounds to the second raster's CRS
+        second_crs_bounds = transform_bounds(ref_crs, second_src.crs, *ref_bounds)
+
+        # Add buffer to ensure we don't miss edge pixels
+        buffered_bounds = (
+            second_crs_bounds[0] - buffer,
+            second_crs_bounds[1] - buffer,
+            second_crs_bounds[2] + buffer,
+            second_crs_bounds[3] + buffer
+        )
+
+        try:
+            # Get the window in the second raster that covers these bounds
+            window = from_bounds(*buffered_bounds, second_src.transform)
+
+            # Read only the relevant portion of the second raster
+            clipped_data = second_src.read(1, window=window)
+            clipped_transform = rasterio.windows.transform(window, second_src.transform)
+
+            # Create array for reprojected data
+            reprojected_data = np.empty(ref_shape, dtype=second_src.dtypes[0])
+
+            # Reproject only the clipped portion
+            reproject(
+                source=clipped_data,
+                destination=reprojected_data,
+                src_transform=clipped_transform,
+                src_crs=second_src.crs,
+                dst_transform=ref_transform,
+                dst_crs=ref_crs,
+                resampling=resampling
+            )
+
+        except rasterio.errors.WindowError:
+            print("Warning: Bounds don't overlap with second raster")
+            # Return array filled with nodata values
+            fill_value = second_src.nodata if second_src.nodata is not None else 0
+            reprojected_data = np.full(ref_shape, fill_value, dtype=second_src.dtypes[0])
+
+    return reprojected_data, profile
 
 def get_suitable_regional_projection_for_raster(raster_data, raster_src):
     
@@ -629,6 +779,7 @@ def get_suitable_regional_projection_for_raster(raster_data, raster_src):
                                     raster_geom, raster_crs,
                                     tolerance = 1e-3,
                                     max_iterations = 10)
+    centroid = [lon_centroid, lat_centroid]
     logger_store.log.info('The geographical centre of the raster is {:+.3f} E {:+.3f} N'
           .format(lon_centroid, lat_centroid))
 
@@ -637,7 +788,7 @@ def get_suitable_regional_projection_for_raster(raster_data, raster_src):
     logger_store.log.info('The proj4 string (defining the new map projection) is:')
     logger_store.log.info(laea_crs)
 
-    return laea_crs
+    return laea_crs, centroid
 
 def geographic_true_centroid(polygon: Polygon, polygon_crs: CRS, tolerance: float = 1e-10, max_iterations: int = 10):
     """
@@ -811,7 +962,8 @@ def calculate_pixel_size_and_counts(profile, raster_data, verbose = True):
     return raster_info_dict
 
 def bin_raster_for_one_polygon_group(raster_src, raster_data, scale_factor,
-                bins, PA_mask, polygon_id_field, polygons_name = 'whole', polygons_GDF = None):
+                bins, PA_mask, landuse_src, polygon_id_field,
+                polygons_name = 'whole', polygons_GDF = None):
     
     logger_store.log.info('\n' + 80 * '-', show_timestamp = False)
     logger_store.log.info('Binning raster for polygons list: {:}'.format(polygons_name))
@@ -829,8 +981,9 @@ def bin_raster_for_one_polygon_group(raster_src, raster_data, scale_factor,
         # Do binning for one polygon.
         polygon_id, results_for_one_polygon__dict = \
                 bin_raster_for_one_polygon(polygons_GDF, i, raster_data,
-                                   raster_src, scale_factor, PA_mask, bins,
-                                   n_polys, polygon_id_field)
+                                    raster_src, scale_factor, PA_mask,
+                                    landuse_src, bins,
+                                    n_polys, polygon_id_field)
 
         # Store array for this polygon in dictionary.
         results_for_all_polygons_in_group__dict[polygon_id] =\
@@ -839,15 +992,18 @@ def bin_raster_for_one_polygon_group(raster_src, raster_data, scale_factor,
     return results_for_all_polygons_in_group__dict
 
 def bin_raster_for_one_polygon(polygons_GDF, i, raster_data, raster_src,
-                               scale_factor, PA_mask, bins, n_polys,
-                               polygon_id_field):
+                               scale_factor, PA_mask, landuse_src, bins,
+                               n_polys, polygon_id_field):
 
     # Apply the protected areas mask and get polygon name and ID.
-    raster_data, raster_data_PA, polygon_name, polygon_id =\
+    raster_data, raster_data_PA, polygon_name, polygon_id, landuse_data =\
         prepare_PA_masked_raster_and_metadata(polygons_GDF, i, raster_data,
-                                            raster_src, PA_mask,
+                                            raster_src, PA_mask, landuse_src,
                                             polygon_id_field)
-        
+
+    #from plot_categorical_data import display_categorical_data 
+    #display_categorical_data(landuse_data, '../data/un_lcc_color_scheme.csv')
+
     # Get pixel size and counts for the current raster (after clipping).
     pxl_info = calculate_pixel_size_and_counts(raster_src.profile,
                                             raster_data,
@@ -869,8 +1025,8 @@ def bin_raster_for_one_polygon(polygons_GDF, i, raster_data, raster_src,
     # Do binning and get bin counts for the data with and without the
     # protected areas mask.
     results_for_one_polygon__dict = get_bin_counts_wrapper(
-            raster_data, raster_data_PA, bins, pxl_info['pixel_area_km2'],
-            scale_factor)
+            raster_data, raster_data_PA, landuse_data, bins,
+            pxl_info['pixel_area_km2'], scale_factor)
 
     # Print an update.
     print_bin_count_update(i, n_polys, polygon_name,
@@ -882,7 +1038,7 @@ def bin_raster_for_one_polygon(polygons_GDF, i, raster_data, raster_src,
     return polygon_id, results_for_one_polygon__dict
 
 def prepare_PA_masked_raster_and_metadata(polygons_GDF, i, raster_data,
-                                          raster_src, PA_mask, polygon_id_field):
+                raster_src, PA_mask, landuse_src, polygon_id_field):
 
     # Case 1: A list of polygons has been provided.
     if polygons_GDF is not None:
@@ -901,6 +1057,13 @@ def prepare_PA_masked_raster_and_metadata(polygons_GDF, i, raster_data,
                 clip_raster_to_polygon_and_apply_PA_mask(
                             polygon_geom, raster_src, PA_mask)
 
+        # Use the polygon to clip the landuse raster.
+        landuse_data, _ =\
+                clip_raster_to_polygon_and_apply_PA_mask(
+                            polygon_geom, landuse_src, PA_mask)
+
+
+
     # Case 2: No list of polygons has been provided (do binning 
     # for the whole raster, with no polygon clipping).
     else:
@@ -911,7 +1074,10 @@ def prepare_PA_masked_raster_and_metadata(polygons_GDF, i, raster_data,
         polygon_name = 'whole'
         polygon_id = 'whole'
 
-    return raster_data, raster_data_masked, polygon_name, polygon_id
+        landuse_data = landuse_src.read(1)
+
+    return (raster_data, raster_data_masked, polygon_name, polygon_id,
+            landuse_data)
 
 def load_gpkg_filtered_by_list_as_gdf(gpkg_path, filter_field,
                                       allowed_list, layer_name = None):
@@ -946,11 +1112,14 @@ def clip_raster_to_polygon_and_apply_PA_mask(
     # Clip the raster by the polgyon.
     data_clipped, transform_clipped = clip_raster_to_polygon(polygon,
                                                              raster_src)
-
-    # Apply the PA mask.
-    data_clipped_and_masked = \
-            apply_full_size_mask_to_clipped_raster(raster_src, data_clipped,
-                                           transform_clipped, PA_mask)
+    if PA_mask is not None:
+        # Apply the PA mask.
+        data_clipped_and_masked = \
+                apply_full_size_mask_to_clipped_raster(raster_src,
+                                                       data_clipped,
+                                               transform_clipped, PA_mask)
+    else:
+        data_clipped_and_masked = None
 
     return data_clipped, data_clipped_and_masked
 
@@ -1011,17 +1180,28 @@ def update_mask(array, new_mask, operator):
 
     return array_mask_updated
 
-def get_bin_counts_wrapper(data, data_PA, bins, pixel_area_km2, scale_factor):
+def get_bin_counts_wrapper(data, data_PA, landuse_data, bins,
+                           pixel_area_km2, scale_factor):
 
     # Get bin counts.
-    counts_by_bin = get_bin_counts(data, bins, scale_factor)
-    counts_by_bin_in_PA = get_bin_counts(data_PA, bins, scale_factor)
+    counts_by_bin, data_binned = get_bin_counts(data, bins, scale_factor)
+    counts_by_bin_in_PA, _ = get_bin_counts(data_PA, bins, scale_factor)
     counts_by_bin_not_in_PA = counts_by_bin - counts_by_bin_in_PA
 
     # Get bin areas.
     areas_km2_by_bin = counts_by_bin * pixel_area_km2
     areas_km2_by_bin_in_PA = counts_by_bin_in_PA * pixel_area_km2
     areas_km2_by_bin_not_in_PA = counts_by_bin_not_in_PA * pixel_area_km2
+
+    # Calculate bin areas, double-binned by land use category.
+    areas_km2_by_category_and_bin = count_binned_by_category(data_binned,
+                                        landuse_data, pixel_area_km2)
+    
+    #print(areas_km2_by_category_and_bin)
+    #print('\n')
+    for landuse_category, val in areas_km2_by_category_and_bin.items():
+        logger_store.log.info('{:>4d} {:10.1f} {:10.1f} {:10.1f} {:10.1f}km2'.format(
+            landuse_category, *val))
 
     # Store the information for this group of polygons.
     #areas_km2_by_bin_array = np.stack([
@@ -1031,6 +1211,7 @@ def get_bin_counts_wrapper(data, data_PA, bins, pixel_area_km2, scale_factor):
         'area_km2_by_bin' : areas_km2_by_bin,
         'area_km2_by_bin_in_PA' : areas_km2_by_bin_in_PA,
         'area_km2_by_bin_not_in_PA' : areas_km2_by_bin_not_in_PA,
+        'area_km2_by_landuse_and_bin' : areas_km2_by_category_and_bin,
         }
 
     #return areas_km2_by_bin_array
@@ -1052,9 +1233,11 @@ def get_bin_counts(data_with_mask, bins, scale_factor):
     counts_by_bin = np.zeros(n_bins, dtype = int)
     for i in range(1, len(bins)):
         
-        counts_by_bin[i - 1] = np.sum((binned == i) & ~binned.mask)
+        #counts_by_bin[i - 1] = np.sum((binned == i) & ~binned.mask)
+        masked_equals_i = np.ma.masked_not_equal(binned, i)
+        counts_by_bin[i - 1] = np.ma.count(masked_equals_i)
 
-    return counts_by_bin
+    return counts_by_bin, binned
 
 def print_bin_count_update(i, n_polys, polygon_name, results_for_one_polygon__dict, total_area, total_area_protected, total_area_unprotected):
 
@@ -1078,6 +1261,27 @@ def print_bin_count_update(i, n_polys, polygon_name, results_for_one_polygon__di
                 ), show_timestamp = False)
 
     return
+
+def count_binned_by_category(binned, category, multiplier):
+    result = {}
+
+    # Masked elements: ignore any location where either is masked
+    combined_mask = np.ma.getmaskarray(binned) | np.ma.getmaskarray(category)
+
+    # Get valid data
+    valid_binned = binned[~combined_mask]
+    valid_category = category[~combined_mask]
+
+    # Loop through unique category values
+    for cat_val in np.unique(valid_category):
+        counts = [0, 0, 0, 0]  # Assuming binned values are 0,1,2,3
+        # Filter binned values corresponding to current category
+        binned_for_cat = valid_binned[valid_category == cat_val]
+        for i in range(4):
+            counts[i] = np.sum(binned_for_cat == i + 1)
+        result[cat_val] = [c * multiplier for c in counts]
+
+    return result
 
 def get_unique_list_from_nested_attr(dict_, key):
 
@@ -1110,9 +1314,15 @@ def main():
                 dir_output, dir_data)
 
     # Define paths for admin polygons and protected areas.
-    path_adm0, path_adm1, path_PA_gpkg = define_dataset_paths(dir_data)
+    path_adm0, path_adm1, path_PA_gpkg, path_landuse =\
+            define_dataset_paths(dir_data)
 
     # Loop through all the datasets in the catalog.
+
+    metadata_keys_to_use = ['folder', 'input_file_name',
+                            'common_name', 'region', 'subregion',
+                            'source_link', 'source_text', 'band']
+
     for key, dataset in catalog.iterrows():
         
         #key = dataset['key']
@@ -1127,24 +1337,36 @@ def main():
         # Do all the processing steps for this raster.
         results[key] = find_intersections_and_do_binning_for_one_raster(
                         dir_data, path_adm0, path_adm1, path_PA_gpkg,
+                        path_landuse,
                         dataset['folder'], dataset['input_file_name'],
                         dataset['band'],
                         dataset['scale_factor'])
 
-    # Transfer (or update) metadata from the catalog to the results.
-    metadata_keys_to_use = ['folder', 'input_file_name', 'species', 'study_area',
-                            'source_link', 'source_text', 'band']
-    for dataset in results:
-        
+        # Transfer (or update) metadata from the catalog to the results.
         for metadata_key in metadata_keys_to_use:
+            
+            #results[key][metadata_key] = catalog.loc[key][metadata_key]
+            results[key][metadata_key] = dataset[metadata_key]
 
-            results[dataset][metadata_key] = catalog.loc[dataset][metadata_key]
+        # Save the results as a JSON file.
+        logger_store.log.info('', show_timestamp = False)
+        logger_store.log.info("Saving to {:}".format(path_results))
+        #for key, val in results.items():
+        #    print(key)
+        #    print(val)
+        #    print('')
+        try:
+            with open(path_results, "w") as f:
+                json.dump(results, f, indent=4, cls = custom_JSON_encoder)
+        except:
+            print(results)
+            raise
 
     # Log the results.
     logger_store.log.info("Final results:", to_console = False)
     logger_store.log.info(json.dumps(results, indent=4, cls = custom_JSON_encoder),
                                 to_console = False)
-    
+
     # Get a list of all the admin-0 and and admin-1 zones covered by
     # all the rasters.
     all_adm0 = get_unique_list_from_nested_attr(results, 'adm0_list')
@@ -1152,13 +1374,6 @@ def main():
     logger_store.log.info('Admin-0 and admin-1 zones covered:')
     logger_store.log.info(all_adm0)
     logger_store.log.info(all_adm1)
-
-    # Save the results as a JSON file.
-    logger_store.log.info('', show_timestamp = False)
-    logger_store.log.info("Saving to {:}".format(path_results))
-    with open(path_results, "w") as f:
-        json.dump(results, f, indent=4, cls = custom_JSON_encoder)
-
     #
     generate_admin_boundary_json_wrapper(dir_output, path_adm0, path_adm1,
                                          all_adm0, all_adm1)
@@ -1167,32 +1382,45 @@ def main():
     #max_zoom = 6
     max_zoom = 'auto'
     color_ramp_name = 'viridis_0_to_255__256_stops'
+    dataset_type = 'continuous'
+    #with pd.option_context('display.max_rows', None):
+    #    print(catalog.sort_values(by='key'))
     for dataset, raster_info in results.items():
 
         raster_min = 0.0
         raster_max = 1.0 * catalog.loc[dataset]['scale_factor']
 
-        prepare_raster_tiles_wrapper(dir_data,
+        #print('\n')
+        #print(dataset)
+        ##print(raster_info)
+        #print(catalog.loc[dataset])
+        #print(catalog.loc[dataset]['overwrite'])
+
+        results[dataset]['max_zoom'] = prepare_raster_tiles_wrapper(
+                            dir_data,
                             raster_info['folder'],
                             raster_info['input_file_name'],
                             dataset,
                             raster_info['band'],
                             max_zoom,
+                            dataset_type,
                             catalog.loc[dataset]['overwrite'],
                             aws_bucket,
                             raster_min, raster_max,
                             color_ramp_name,
                             )
+
+        # Save the results as a JSON file.
+        logger_store.log.info('', show_timestamp = False)
+        logger_store.log.info("Saving to {:}".format(path_results))
+        with open(path_results, "w") as f:
+            json.dump(results, f, indent=4, cls = custom_JSON_encoder)
     
-        #prepare_cog_wrapper(dir_data,
-        #                    raster_info['folder'],
-        #                    raster_info['input_file_name'],
-        #                    dataset,
-        #                    raster_info['band'],
-        #                    max_zoom,
-        #                    catalog.loc[dataset]['overwrite'],
-        #                    aws_bucket,
-        #                    )
+    # Save the results as a JSON file.
+    logger_store.log.info('', show_timestamp = False)
+    logger_store.log.info("Saving to {:}".format(path_results))
+    with open(path_results, "w") as f:
+        json.dump(results, f, indent=4, cls = custom_JSON_encoder)
 
     return
 

@@ -45,7 +45,11 @@ def prepare_raster_basemap_layer(aws_bucket, dir_data, key,
     path_raster_in = os.path.join(dir_data, 'raster',
                                   layer['folder'], layer['input_file_name'])
     # 
-    name_tiles_out = '{:}_{:02d}'.format(key, max_zoom)
+    if max_zoom == 'auto':
+        name_tiles_out = '{:}_auto'.format(key)
+    else:
+        name_tiles_out = '{:}_{:02d}'.format(key, max_zoom)
+
     subdir_tiles = '/'.join(['code_output', 'raster_tiles', layer['folder']])
     dir_tiles_out = os.path.join(dir_data,  subdir_tiles, name_tiles_out)
     #
@@ -54,7 +58,7 @@ def prepare_raster_basemap_layer(aws_bucket, dir_data, key,
 
     extract_band_and_generate_tiles(path_raster_in, layer['band'], max_zoom,
             dir_tiles_out, layer['val_min'], layer['val_max'],
-            path_colour_ramp, layer['resample_method'], layer['overwrite'])
+            path_colour_ramp, layer['dataset_type'], layer['overwrite'])
 
     # Upload to AWS. (If the tiles are already there, no transfer will be
     # done.)
@@ -96,8 +100,7 @@ def prepare_vector_basemap_layer(aws_bucket, dir_data, key, layer, max_zoom):
 
 def main():
 
-    max_zoom = 6 
-
+    #max_zoom = 6 
     # Parse the command-line arguments.
     args = parse_args()
     dir_data = args.dir_data
@@ -110,11 +113,13 @@ def main():
         
         if layer['type'] == 'raster':
 
+            max_zoom = 'auto'
             prepare_raster_basemap_layer(aws_bucket, dir_data, key,
                                          layer, max_zoom)
 
         else:
 
+            max_zoom = 10
             prepare_vector_basemap_layer(aws_bucket, dir_data, key,
                                          layer, max_zoom)
 

@@ -146,7 +146,10 @@ def _generate_tiles_direct(input_path, max_zoom, attributes, output_dir,
         'tippecanoe',
         '--output-to-directory', output_dir,
         f'--layer={output_layer_name}',
-        '--drop-densest-as-needed',
+        #'--drop-densest-as-needed',
+        '--drop-smallest-as-needed',
+        #'--coalesce-smallest-as-needed', # too slow
+        #'--coalesce', # not good
         '--generate-ids',
         '--force',
         '-Z', '0',

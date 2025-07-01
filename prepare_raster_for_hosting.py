@@ -50,7 +50,7 @@ def compare_manifest(directory, manifest_path):
     return saved == current
 
 def extract_band_and_generate_tiles(input_tiff, band_index, max_zoom,
-            output_dir, data_min, data_max, color_ramp_file, resample_method,
+            output_dir, data_min, data_max, color_ramp_file, dataset_type,
             overwrite):
 
     # Check if the manifest file exists, and if it matches, skip the
@@ -60,106 +60,151 @@ def extract_band_and_generate_tiles(input_tiff, band_index, max_zoom,
         compare_manifest(output_dir, manifest_file) and overwrite == 'no'):
         print("Tiles match manifest file {:}. Skipping generation.".format(
             manifest_file))
-        return
+        return manifest_file
+    
+    assert dataset_type in ['continuous', 'categorical']
+    if dataset_type == 'continuous':
+        
+        resample_method = 'bilinear'
 
-    # Define temporary file paths for intermediate TIFF files.
-    tmp_tif = dict()
-    tmp_tif_list = ['scaled', 'scaled_with_alpha', 'alpha', 'color',
-                    'color_with_alpha']
-    for name in tmp_tif_list:
-        tmp_tif[name] = tempfile.NamedTemporaryFile(suffix='.tif', delete=False)
-        tmp_tif[name].close()
+        # Define temporary file paths for intermediate TIFF files.
+        tmp_tif = dict()
+        tmp_tif_list = ['scaled', 'scaled_with_alpha', 'alpha', 'color',
+                        'color_with_alpha']
+        for name in tmp_tif_list:
+            tmp_tif[name] = tempfile.NamedTemporaryFile(suffix='.tif', delete=False)
+            tmp_tif[name].close()
 
-    # Scale to 8-bit (required to generate image tiles), i.e. integer from
-    # 0 to 255. (Use 1 - 254 instead of 0 - 255 because of issues with applying
-    # colour ramp.)
-    scale_cmd = [
-        "gdal_translate",
-        "-b", str(band_index),
-        "-ot", "Byte",
-        "-scale", str(data_min), str(data_max), "1", "254",
-        input_tiff,
-        tmp_tif['scaled'].name
-    ]
-    run_cmd(scale_cmd)
-
-    # Add alpha, based on null pixels, as a second channel.
-    warp_cmd = [
-        "gdalwarp",
-        "-dstalpha",
-        tmp_tif['scaled'].name,
-        tmp_tif['scaled_with_alpha'].name
-    ]
-    run_cmd(warp_cmd)
-
-    # Get alpha channel as a separate tif.
-    cmd = ["gdal_translate", "-b", "2",
-            tmp_tif['scaled_with_alpha'].name,
-            tmp_tif['alpha'].name]
-    run_cmd(cmd)
-
-    # Apply color ramp to the 8-bit tiff.
-    print(f"Applying color ramp from {color_ramp_file}...")
-    color_cmd = [
-    "gdaldem", "color-relief",
-    tmp_tif['scaled'].name,
-    color_ramp_file,
-    tmp_tif['color'].name,
-    ]
-    run_cmd(color_cmd)
-
-    # Apply alpha to colored tiff and as a fourth channel.
-    cmd = [
-        "gdal_merge.py", "-separate", "-o",
-        tmp_tif['color_with_alpha'].name,
-        tmp_tif['color'].name,
-        tmp_tif['alpha'].name
+        # Scale to 8-bit (required to generate image tiles), i.e. integer from
+        # 0 to 255. (Use 1 - 254 instead of 0 - 255 because of issues with applying
+        # colour ramp.)
+        scale_cmd = [
+            "gdal_translate",
+            "-b", str(band_index),
+            "-ot", "Byte",
+            "-scale", str(data_min), str(data_max), "1", "254",
+            input_tiff,
+            tmp_tif['scaled'].name
         ]
-    run_cmd(cmd)
+        run_cmd(scale_cmd)
 
-    # Modify metadata to ensure that fourth channel is treated as alpha.
-    cmd = [
-            "gdal_edit.py", "-colorinterp_4", "alpha",
-            tmp_tif['color_with_alpha'].name
+        # Add alpha, based on null pixels, as a second channel.
+        warp_cmd = [
+            "gdalwarp",
+            "-dstalpha",
+            tmp_tif['scaled'].name,
+            tmp_tif['scaled_with_alpha'].name
+        ]
+        run_cmd(warp_cmd)
+
+        # Get alpha channel as a separate tif.
+        cmd = ["gdal_translate", "-b", "2",
+                tmp_tif['scaled_with_alpha'].name,
+                tmp_tif['alpha'].name]
+        run_cmd(cmd)
+
+        # Apply color ramp to the 8-bit tiff.
+        print(f"Applying color ramp from {color_ramp_file}...")
+        color_cmd = [
+        "gdaldem", "color-relief",
+        tmp_tif['scaled'].name,
+        color_ramp_file,
+        tmp_tif['color'].name,
+        ]
+        run_cmd(color_cmd)
+
+        # Apply alpha to colored tiff and as a fourth channel.
+        cmd = [
+            "gdal_merge.py", "-separate", "-o",
+            tmp_tif['color_with_alpha'].name,
+            tmp_tif['color'].name,
+            tmp_tif['alpha'].name
             ]
-    run_cmd(cmd)
+        run_cmd(cmd)
 
-    # Generate the tiles from the four-channel TIFF.
-    # Need to use to --xyz tile order convention for compatibility with 
-    # MapLibre GL.
-    # bilinear interpolation is suitable for continuous data.
-    print(f"Generating tiles up to zoom level {max_zoom} in {output_dir}...")
-    if max_zoom == 'auto':
-        zoom_args = []
-    else:
-        zoom_args = ["-z", f"0-{max_zoom}"]
+        # Modify metadata to ensure that fourth channel is treated as alpha.
+        cmd = [
+                "gdal_edit.py", "-colorinterp_4", "alpha",
+                tmp_tif['color_with_alpha'].name
+                ]
+        run_cmd(cmd)
 
-    gdal2tiles_cmd = [
-        "gdal2tiles.py",
-        "--xyz",
-        *zoom_args,
-        "-r", resample_method,
-        "--processes", "4",
-        tmp_tif['color_with_alpha'].name,
-        output_dir
-    ]
-    run_cmd(gdal2tiles_cmd)
+        # Generate the tiles from the four-channel TIFF.
+        # Need to use to --xyz tile order convention for compatibility with 
+        # MapLibre GL.
+        # bilinear interpolation is suitable for continuous data.
+        print(f"Generating tiles up to zoom level {max_zoom} in {output_dir}...")
+        if max_zoom == 'auto':
+            zoom_args = []
+        else:
+            zoom_args = ["-z", f"0-{max_zoom}"]
+
+        gdal2tiles_cmd = [
+            "gdal2tiles.py",
+            "--xyz",
+            *zoom_args,
+            "-r", resample_method,
+            "--processes", "4",
+            tmp_tif['color_with_alpha'].name,
+            output_dir
+        ]
+        run_cmd(gdal2tiles_cmd)
+
+        # Cleanup (remove temporary files).
+        for name in tmp_tif_list:
+            os.unlink(tmp_tif[name].name)
+
+    elif dataset_type == 'categorical':
+
+        resample_method = 'mode'
+        tmp_file_list = dict()
+        tmp_file_list['vrt'] = tempfile.NamedTemporaryFile(suffix='.vrt',
+                                                           delete=False)
+
+        for key in tmp_file_list.keys():
+            tmp_file_list[key].close()
+
+        vrt_cmd = [
+            "gdal_translate", "-of", "vrt", "-expand", "rgba",
+            input_tiff, tmp_file_list['vrt'].name]
+        run_cmd(vrt_cmd)
+
+        # Generate the tiles.
+        # Need to use to --xyz tile order convention for compatibility with 
+        # MapLibre GL.
+        # bilinear interpolation is suitable for continuous data.
+        print(f"Generating tiles up to zoom level {max_zoom} in {output_dir}...")
+        if max_zoom == 'auto':
+            zoom_args = []
+        else:
+            zoom_args = ["-z", f"0-{max_zoom}"]
+
+        gdal2tiles_cmd = [
+            "gdal2tiles.py",
+            "--xyz",
+            *zoom_args,
+            "-r", resample_method,
+            "--processes", "4",
+            tmp_file_list['vrt'].name,
+            output_dir
+        ]
+        run_cmd(gdal2tiles_cmd)
+
+        for key in tmp_file_list.keys():
+            os.unlink(tmp_file_list[key].name)
 
     # Create the tile manifest.
     print("Tile generation complete. Saving manifest to {:}".format(
         manifest_file))
     create_tile_manifest(output_dir, manifest_file)
 
-    # Cleanup (remove temporary files).
-    for name in tmp_tif_list:
-        os.unlink(tmp_tif[name].name)
-
-    return
+    return manifest_file
 
 def prepare_raster_tiles_wrapper(dir_data, raster_subfolder,
                         raster_input_file_name,
-                        raster_key, band_index, max_zoom, overwrite,
-                        aws_bucket, raster_min, raster_max, name_color_ramp):
+                        raster_key, band_index, max_zoom, dataset_type,
+                        overwrite, aws_bucket, raster_min, raster_max,
+                        name_color_ramp):
 
     # Define file paths.
     path_raster = os.path.join(dir_data, 'raster', 'SDM',
@@ -185,15 +230,42 @@ def prepare_raster_tiles_wrapper(dir_data, raster_subfolder,
         data_min = raster_min,
         data_max = raster_max,
         color_ramp_file = path_color_ramp,
+        dataset_type = dataset_type,
         overwrite = overwrite,
     )
 
     # Upload to AWS. (If the tiles are already there, no transfer will be
     # done.)
     aws_key = '/'.join([subdir_raster_tiles, name_raster_tiles])
+    print(aws_bucket)
     upload_to_aws(dir_raster_tiles, aws_bucket, aws_key, overwrite)
 
-    return
+    # Determine the maximum zoom level.
+    if max_zoom == 'auto':
+
+        calculated_max_zoom = get_max_zoom_from_manifest(manifest_file)
+
+    return calculated_max_zoom
+
+def get_max_zoom_from_manifest(manifest_path):
+    """
+    Reads a tile manifest JSON file with keys like "z/x/y.png",
+    and returns the highest zoom level (z) present.
+    """
+    with open(manifest_path, 'r') as f:
+        manifest = json.load(f)
+
+    max_zoom = -1
+    for key in manifest:
+        try:
+            z = int(key.split('/')[0])
+            if z > max_zoom:
+                max_zoom = z
+        except (IndexError, ValueError):
+            continue  # skip malformed keys
+
+    return max_zoom
+
 
 # Example usage
 #if __name__ == "__main__":
