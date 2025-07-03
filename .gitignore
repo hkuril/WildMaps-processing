@@ -5,23 +5,26 @@ __pycache__/
 *.env
 *.swp
 *.swo
+old/
+# Data inputs.
+# Track data inputs, except for large files and the dataset catalog (which
+# is synced to AWS).
 data_inputs/catalogs/dataset_catalog.csv
 data_inputs/raster/*
-!data_inputs/raster/.gitkeep
-!data_inputs/raster/land_use/.gitkeep
 !data_inputs/raster/land_use/copernicus/.gitkeep
+!data_inputs/raster/SDM/.gitkeep
 data_inputs/vector/*
-!data_inputs/vector/.gitkeep
-data_inputs/vector/protected_areas/
-data_inputs/vector/protected_areas/.gitkeep
-!data_inputs/vector/protected_areas/WDPA/
+!data_inputs/vector/admin_boundaries/geoBoundaries/.gitkeep
 !data_inputs/vector/protected_areas/WDPA/.gitkeep
+# Data outputs.
+# Don’t track data outputs, but make sure the directory structure is retained. 
 data_outputs/*
 !data_outputs/.gitkeep
 !data_outputs/logs/.gitkeep
 !data_outputs/vector_tiles/.gitkeep
 !data_outputs/raster_tiles/.gitkeep
 !data_outputs/raster_analysis/.gitkeep
-old/
+# Website file generation: Same as data outputs: don’t track, but retain
+# directory structure.
 website_dist/*
 !website_dist/.gitkeep
