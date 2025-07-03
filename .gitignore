@@ -12,7 +12,9 @@ data_inputs/raster/*
 !data_inputs/raster/land_use/copernicus/.gitkeep
 data_inputs/vector/*
 !data_inputs/vector/.gitkeep
-!data_inputs/vector/protected_areas/.gitkeep
+data_inputs/vector/protected_areas/
+data_inputs/vector/protected_areas/.gitkeep
+!data_inputs/vector/protected_areas/WDPA/
 !data_inputs/vector/protected_areas/WDPA/.gitkeep
 data_outputs/*
 !data_outputs/.gitkeep

@@ -18,6 +18,8 @@ def main():
     files_to_get = [
         'data_inputs/raster/land_use/copernicus/copernicus_clms_land_cover_global_100m_epsg4326.tif',
         'data_inputs/vector/protected_areas/WDPA/WDPA_Jun2025_Public-polygons.gpkg',
+        'data_inputs/vector/admin_boundaries/geoBoundaries/geoBoundariesCGAZ_ADM0_repaired_twice.gpkg',
+        'data_inputs/vector/admin_boundaries/geoBoundaries/geoBoundariesCGAZ_ADM1_repaired_twice.gpkg',
         ]
     
     for file_ in files_to_get:

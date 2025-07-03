@@ -24,7 +24,7 @@ mkdir -p ~/.aws
 
 Note that if you see a dot (`.`) at the start of the directory or file name, as we see here, it means the file or folder is ‘hidden’: by default it won’t show up in a normal file browser, and it is ignored by many softwares.
 
-Next, create the credentials file (this command is safe, it won’t overwrite the file if it doesn’t exist):
+Next, create the credentials file (this command is safe, it won’t overwrite the file if it already exists):
 
 ```
 [ ! -f ~/.aws/credentials ] && touch ~/.aws/credentials
@@ -115,10 +115,13 @@ conda activate WildMaps-processing
 This should add some text to the start of your command prompt, something like this:
 
 ```
-(WildMaps-processing) $
+(WildMaps-processing) $ <-- could also be %
 ```
 
 Congratulations, you can now run the code! But... the first commands to run are even more set-up commands.
+
+** export pythonpath **
+** correct preservation of directory structure **
 
 ### Retrieve the large input files
 
@@ -127,6 +130,8 @@ A few of the files used in the processing are large and it is not smart to store
 ```
 python3 interact_with_aws/get_large_input_files.py
 ```
+
+** needs fixing **
 
 It should print something like:
 
