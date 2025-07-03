@@ -1,18 +1,18 @@
-﻿superspecies,description,emoji
-artiodactyla-bovidae,"bovids (such as cattle, antelopes, and goats)",🐮
-artiodactyla-cervidae,deer (cervids),🦌
-artiodactyla-suidae,pigs (suids),🐖
-carnivora-canidae,canids (such as dogs),🐕
-carnivora-feliformia-felidae,cats (felids),🐈
-carnivora-feliformia-herpestidae,herpestids (such as mongooses),🐾
-carnivora-feliformia-prionodontidae,linsangs (prionodons),🐆
-carnivora-feliformia-viverridae,viverrids (such as civets),🐱
-carnivora-mephitidae,mephitids (such as skunks and stink badgets),🦨
-carnivora-mustelidae,"mustelids (such as weasels, otters, and martens)",🦦
-carnivora-ursidae,bears (ursids),🐻
-eulipotyphla,"eulipotyphlans (such as hedgehogs, moles and shrews)",🦔
-perissodactyla-tapiridae,tapirs,👃
-pholidota,pangolins (pholidotans),🌀
-primates,primates,🐒
-proboscidea,elephants,🐘
-rodentia,rodents,🐿️
+﻿superspecies,scientific_name,common_name,emoji
+artiodactyla-bovidae,bovids,"cattle, antelopes, goats, and others",🐮
+artiodactyla-cervidae,cervids,deer,🦌
+artiodactyla-suidae,suids,pigs,🐖
+carnivora-canidae,canids,dogs,🐕
+carnivora-feliformia-felidae,felids,cats,🐈
+carnivora-feliformia-herpestidae,herpestids,mongooses and others,🐾
+carnivora-feliformia-prionodontidae,prionodons,linsangs,🐆
+carnivora-feliformia-viverridae,viverrids,civets and others,🐱
+carnivora-mephitidae,mephitids,skunks and stink badgers,🦨
+carnivora-mustelidae,mustelids,"weasels, otters, martens and others",🦦
+carnivora-ursidae,ursids,bears,🐻
+eulipotyphla,eulipotyphlans,"hedgehogs, moles, shrews, and others",🦔
+perissodactyla-tapiridae,tapirs,tapirs,👃
+pholidota,pholidotans,pangolins,🌀
+primates,primates,primates,🐒
+proboscidea,elephants,elephants,🐘
+rodentia,rodents,rodents,🐿️

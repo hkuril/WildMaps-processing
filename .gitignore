@@ -8,8 +8,12 @@ __pycache__/
 data_inputs/catalogs/dataset_catalog.csv
 data_inputs/raster/*
 !data_inputs/raster/.gitkeep
+!data_inputs/raster/land_use/.gitkeep
+!data_inputs/raster/land_use/copernicus/.gitkeep
 data_inputs/vector/*
 !data_inputs/vector/.gitkeep
+!data_inputs/vector/protected_areas/.gitkeep
+!data_inputs/vector/protected_areas/WDPA/.gitkeep
 data_outputs/*
 !data_outputs/.gitkeep
 !data_outputs/logs/.gitkeep

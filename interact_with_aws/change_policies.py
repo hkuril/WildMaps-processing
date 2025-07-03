@@ -5,6 +5,7 @@ from botocore.exceptions import ClientError, NoCredentialsError
 
 from interact_with_aws.aws_tools import (AWS_PROFILE_NAME as PROFILE_NAME,
                                          AWS_BUCKET as BUCKET_NAME)
+from utilities.handle_logging import set_up_logging
 
 def update_bucket_policy(bucket_name, policy_file_path, profile_name):
     """Update S3 bucket policy"""
@@ -33,6 +34,8 @@ def update_cors_policy(bucket_name, cors_file_path, profile_name):
     print(f"✅ CORS configuration updated for {bucket_name}")
 
 if __name__ == "__main__":
+    set_up_logging('data_outputs')
+
     # Check command line arguments
     if len(sys.argv) != 3:
         print("Usage: python script.py <bucket_policy|cors> <file-path>")

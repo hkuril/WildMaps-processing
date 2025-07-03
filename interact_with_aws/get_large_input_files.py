@@ -14,16 +14,16 @@ def main():
                        help='Overwrite local file if it already exists')
     
     args = parser.parse_args()
+
+    files_to_get = [
+        'data_inputs/raster/land_use/copernicus/copernicus_clms_land_cover_global_100m_epsg4326.tif',
+        'data_inputs/vector/protected_areas/WDPA/WDPA_Jun2025_Public-polygons.gpkg',
+        ]
     
-    # Default parameters
-    local_path = "data_inputs/catalogs/dataset_catalog.csv"
-    
-    # Call the download function
-    success = download_file_from_aws(local_path,
-                                     overwrite=args.overwrite)
-    
-    if not success:
-        exit(1)
+    for file_ in files_to_get:
+        success = download_file_from_aws(local_path,
+                                         overwrite=args.overwrite)
 
 if __name__ == "__main__":
     main()
+
