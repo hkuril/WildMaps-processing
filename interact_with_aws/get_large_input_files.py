@@ -23,7 +23,7 @@ def main():
         ]
     
     for file_ in files_to_get:
-        success = download_file_from_aws(local_path,
+        success = download_file_from_aws(file_
                                          overwrite=args.overwrite)
 
 if __name__ == "__main__":
