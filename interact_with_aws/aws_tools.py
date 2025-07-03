@@ -197,6 +197,7 @@ def download_and_parse_aws(path, parse_func):
     return None
 
 def upload_tiles_to_aws(dir_path_local, key, overwrite, bucket = None):
+    # !!! Don’t need key.
 
     if bucket is None:
 

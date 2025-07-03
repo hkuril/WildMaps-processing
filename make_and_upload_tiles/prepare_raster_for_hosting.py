@@ -194,18 +194,19 @@ def extract_band_and_generate_tiles(input_tiff, band_index, max_zoom,
         run_cmd(gdal2tiles_cmd)
 
         # Boost the zoom level by 1.
-        auto_max_zoom = get_max_zoom_level(output_dir)
-        gdal2tiles_cmd = [
-            "gdal2tiles.py",
-            "--xyz",
-            "-r", resample_method,
-            "--processes", "4",
-            "--resume",
-            "-z", f"{auto_max_zoom + 1}-{auto_max_zoom + 1}",
-            tmp_tif['color_with_alpha'].name,
-            output_dir
-        ]
-        run_cmd(gdal2tiles_cmd)
+        if max_zoom == 'auto':
+            auto_max_zoom = get_max_zoom_level(output_dir)
+            gdal2tiles_cmd = [
+                "gdal2tiles.py",
+                "--xyz",
+                "-r", resample_method,
+                "--processes", "4",
+                "--resume",
+                "-z", f"{auto_max_zoom + 1}-{auto_max_zoom + 1}",
+                tmp_tif['color_with_alpha'].name,
+                output_dir
+            ]
+            run_cmd(gdal2tiles_cmd)
 
         # Cleanup (remove temporary files).
         for name in tmp_tif_list:

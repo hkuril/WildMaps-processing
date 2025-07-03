@@ -3,10 +3,10 @@
   "sources": {
     "worldpop": {
       "type": "raster",
-      "tiles": ["https://wildcru-wildmaps.s3.eu-west-2.amazonaws.com/data_outputs/raster_tiles/population/worldpop_auto/{z}/{x}/{y}.png"],
+      "tiles": ["https://wildcru-wildmaps.s3.eu-west-2.amazonaws.com/data_outputs/raster_tiles/population/worldpop_08/{z}/{x}/{y}.png"],
       "tileSize": 256,
       "minzoom": 0,
-      "maxzoom": 7 
+      "maxzoom": 8 
     }
   },
   "layers": [

@@ -10,6 +10,7 @@ def main():
     dir_data_inputs = 'data_inputs'
     dir_dictionaries = os.path.join(dir_data_inputs, 'dictionaries')
     dir_styles = os.path.join(dir_data_inputs, 'styles')
+    dir_colour_ramps = os.path.join(dir_data_inputs, 'colour_ramps')
 
     dicts_to_send = ['region', 'subregion', 'superspecies', 'species']
     paths = []
@@ -32,6 +33,8 @@ def main():
     for style in styles_to_send:
         path_ = os.path.join(dir_styles, '{:}.json'.format(style))
         paths.append(path_)
+
+    paths.append(os.path.join(dir_colour_ramps, 'un_lcc_color_scheme.csv'))
     
     for path_ in paths:
         

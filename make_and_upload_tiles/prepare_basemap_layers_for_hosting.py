@@ -21,10 +21,11 @@ def parse_args():
 
     return args
 
-def load_basemap_catalog(dir_data):
+def load_basemap_catalog():
 
     # The catalog tells us which files need to be processed.
-    path_catalog = os.path.join(dir_data, 'catalogs', 'basemap_catalog.csv')
+    #path_catalog = os.path.join(dir_data, 'catalogs', 'basemap_catalog.csv')
+    path_catalog = os.path.join('data_inputs', 'catalogs', 'basemap_catalog.csv')
 
     catalog = pd.read_csv(path_catalog)
     catalog.set_index('key', inplace = True)
@@ -37,36 +38,43 @@ def load_basemap_catalog(dir_data):
 
     return catalog 
 
-def prepare_raster_basemap_layer(aws_bucket, dir_data, key,
-                                 layer, max_zoom):
-
+def prepare_raster_basemap_layer(basemap_key, layer, max_zoom):
+    
     if layer['needs_ocean_clip'] == 'yes':
 
         raise NotImplementedError('Ocean clipping not implemented')
     
     # Define input and output paths.
-    path_raster_in = os.path.join(dir_data, 'raster',
-                                  layer['folder'], layer['input_file_name'])
+    path_raster_in = os.path.join('data_inputs',
+            'raster', layer['folder'], layer['input_file_name'])
     # 
     if max_zoom == 'auto':
-        name_tiles_out = '{:}_auto'.format(key)
+        name_tiles_out = '{:}_auto'.format(basemap_key)
     else:
-        name_tiles_out = '{:}_{:02d}'.format(key, max_zoom)
+        name_tiles_out = '{:}_{:02d}'.format(basemap_key, max_zoom)
 
-    subdir_tiles = '/'.join(['data_outputs', 'raster_tiles', layer['folder']])
-    dir_tiles_out = os.path.join(dir_data,  subdir_tiles, name_tiles_out)
+
+    dir_tiles = os.path.join('data_outputs', 'raster_tiles', layer['folder'],
+                             name_tiles_out)
     #
-    path_colour_ramp = os.path.join(dir_data, 'colour_ramps',
+    path_colour_ramp = os.path.join('data_inputs', 'colour_ramps',
                                     layer['file_colour_ramp'])
-
-    extract_band_and_generate_tiles(path_raster_in, layer['band'], max_zoom,
-            dir_tiles_out, layer['val_min'], layer['val_max'],
-            path_colour_ramp, layer['dataset_type'], layer['overwrite'])
+    
+    extract_band_and_generate_tiles(
+            path_raster_in,
+            layer['band'],
+            max_zoom,
+            dir_tiles,
+            path_colour_ramp,
+            layer['dataset_type'],
+            layer['overwrite'],
+            data_min = layer['val_min'],
+            data_max = layer['val_max'])
 
     # Upload to AWS. (If the tiles are already there, no transfer will be
     # done.)
-    aws_key = '/'.join([subdir_tiles, name_tiles_out])
-    upload_tiles_to_aws(dir_tiles_out, aws_key, layer['overwrite'])
+    # Duplicate argument is deliberate.
+    upload_tiles_to_aws(dir_tiles, dir_tiles, layer['overwrite'])
 
     return
 
@@ -102,31 +110,28 @@ def prepare_vector_basemap_layer(aws_bucket, dir_data, key, layer, max_zoom):
     return
 
 def main():
+    # !!! Currently doesn’t check if it appears on server.
+
     # Set up logging
     set_up_logging('data_outputs')
 
-    #max_zoom = 6 
-    # Parse the command-line arguments.
-    args = parse_args()
-    dir_data = args.dir_data
-    #dir_output = os.path.join(dir_data, 'code_output')
-    
-    catalog = load_basemap_catalog(dir_data)
-    catalog = catalog.loc[['wdpa']]
+    catalog = load_basemap_catalog()
+    #catalog = catalog.loc[['wdpa']]
+    catalog = catalog.loc[['worldpop']]
 
     # 
-    for key, layer in catalog.iterrows():
+    for basemap_key, layer in catalog.iterrows():
         
         if layer['type'] == 'raster':
 
-            max_zoom = 'auto'
-            prepare_raster_basemap_layer(aws_bucket, dir_data, key,
-                                         layer, max_zoom)
+            #max_zoom = 'auto'
+            max_zoom = 8 
+            prepare_raster_basemap_layer(basemap_key, layer, max_zoom)
 
         else:
 
             max_zoom = 10
-            prepare_vector_basemap_layer(aws_bucket, dir_data, key,
+            prepare_vector_basemap_layer(aws_bucket, dir_data, basemap_key,
                                          layer, max_zoom)
 
     return
