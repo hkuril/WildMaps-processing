@@ -121,7 +121,6 @@ This should add some text to the start of your command prompt, something like th
 Congratulations, you can now run the code! But... the first commands to run are even more set-up commands.
 
 ** export pythonpath **
-** correct preservation of directory structure **
 
 ### Retrieve the large input files
 
@@ -130,8 +129,6 @@ A few of the files used in the processing are large and it is not smart to store
 ```
 python3 interact_with_aws/get_large_input_files.py
 ```
-
-** needs fixing **
 
 It should print something like:
 
