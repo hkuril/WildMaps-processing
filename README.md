@@ -118,9 +118,16 @@ This should add some text to the start of your command prompt, something like th
 (WildMaps-processing) $ <-- could also be %
 ```
 
-Congratulations, you can now run the code! But... the first commands to run are even more set-up commands.
+Then you need to add the current directory to your PYTHONPATH environment variable, for example like this:
 
-** export pythonpath **
+```
+echo 'export PYTHONPATH="${PYTHONPATH}:$(pwd)"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+This edits your `~/.zshrc` configuration file, so it only needs to be run once. If your terminal doesn’t use `zsh` (the default nowadays for Mac), then you might need to use a differnt RC file like `~/.bashrc`.
+
+Congratulations, you can now run the code! But... the first commands to run are even more set-up commands.
 
 ### Retrieve the large input files
 
@@ -130,14 +137,12 @@ A few of the files used in the processing are large and it is not smart to store
 python3 interact_with_aws/get_large_input_files.py
 ```
 
-It should print something like:
-
 ### Retrieve the latest version of the dataset catalog
 
 Run this command:
 
 ```
-python3 interact_with_aws/get_catalog_file.py
+python3 interact_with_aws/get_catalog_file.py --overwrite
 ```
 It should print something like:
 
