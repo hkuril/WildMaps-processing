@@ -1,0 +1,32 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "RestrictByReferer",
+            "Effect": "Deny",
+            "Principal": "*",
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::wildcru-wildmaps/*",
+            "Condition": {
+                "StringNotLike": {
+                    "aws:Referer": [
+                        "http://localhost:5173*",
+                        "https://localhost:5173*",
+                        "http://demo.hkuril.com*",
+                        "https://demo.hkuril.com*"
+                    ]
+                },
+                "StringNotEquals": {
+                    "aws:PrincipalArn": "arn:aws:iam::775525057974:user/WildMapsMaintainer"
+                }
+            }
+        },
+        {
+            "Sid": "AllowPublic",
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": "s3:GetObject",
+            "Resource": "arn:aws:s3:::wildcru-wildmaps/*"
+        }
+    ]
+}

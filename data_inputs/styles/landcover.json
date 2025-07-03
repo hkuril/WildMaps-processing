@@ -1,0 +1,22 @@
+{
+  "version": 8,
+  "sources": {
+    "copernicus": {
+      "type": "raster",
+      "tiles": ["https://wildcru-wildmaps.s3.eu-west-2.amazonaws.com/data_outputs/raster_tiles/land_use/copernicus/landuse_auto/{z}/{x}/{y}.png"],
+      "tileSize": 256,
+      "minzoom": 0,
+      "maxzoom": 10 
+    }
+  },
+  "layers": [
+    {
+      "id": "land-use",
+      "type": "raster",
+      "source": "copernicus",
+      "paint": {
+        "raster-opacity": 1.0 
+      }
+    }
+  ]
+}

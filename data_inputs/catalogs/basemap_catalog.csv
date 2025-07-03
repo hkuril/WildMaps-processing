@@ -1,0 +1,5 @@
+﻿key,type,folder,input_file_name,band,val_min,val_max,needs_ocean_clip,dataset_type,file_colour_ramp,attribs_to_keep,overwrite
+worldpop,raster,population,ppp_2020_1km_Aggregated.tif,1,0,3000,no,continuous,plasma_1_to_254__1000_stops_log.txt,none,no
+wdpa,vector,protected_areas/WDPA,WDPA_Jun2025_Public-polygons_no_marine.gpkg,none,none,none,no,none,none,NAME;ISO3;WDPA_ID;DESIG;IUCN_CAT;MARINE,no
+ecoregions,vector,ecoregions/Ecoregions2017,Ecoregions2017.gpkg,none,none,none,no,none,none,ECO_NAME;BIOME_NAME;BIOME_NUM;COLOR_BIO,no
+landuse,raster,land_use/copernicus,copernicus_clms_land_cover_global_100m_epsg4326.tif,none,none,none,no,categorical,none,none,no

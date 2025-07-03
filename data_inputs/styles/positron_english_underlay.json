@@ -1,0 +1,351 @@
+{
+  "version": 8,
+  "sources": {
+    "ne2_shaded": {
+      "maxzoom": 6,
+      "tileSize": 256,
+      "tiles": [
+        "https://tiles.openfreemap.org/natural_earth/ne2sr/{z}/{x}/{y}.png"
+      ],
+      "type": "raster"
+    },
+    "openmaptiles": {
+      "type": "vector",
+      "url": "https://tiles.openfreemap.org/planet"
+    }
+  },
+  "sprite": "https://tiles.openfreemap.org/sprites/ofm_f384/ofm",
+  "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+  "layers": [
+    {
+      "id": "ul-background",
+      "type": "background",
+      "paint": {
+        "background-color": "rgb(242,243,240)"
+      }
+    },
+    {
+      "id": "ul-park",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "park",
+      "filter": [
+        "match",
+        [
+          "geometry-type"
+        ],
+        [
+          "MultiPolygon",
+          "Polygon"
+        ],
+        true,
+        false
+      ],
+      "paint": {
+        "fill-color": "rgb(230, 233, 229)"
+      }
+    },
+    {
+      "id": "ul-water",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "water",
+      "filter": [
+        "all",
+        [
+          "match",
+          [
+            "geometry-type"
+          ],
+          [
+            "MultiPolygon",
+            "Polygon"
+          ],
+          true,
+          false
+        ],
+        [
+          "!=",
+          [
+            "get",
+            "brunnel"
+          ],
+          "tunnel"
+        ]
+      ],
+      "paint": {
+        "fill-antialias": true,
+        "fill-color": "rgb(194, 200, 202)"
+      }
+    },
+    {
+      "id": "ul-landcover_ice_shelf",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "landcover",
+      "maxzoom": 8,
+      "filter": [
+        "all",
+        [
+          "match",
+          [
+            "geometry-type"
+          ],
+          [
+            "MultiPolygon",
+            "Polygon"
+          ],
+          true,
+          false
+        ],
+        [
+          "==",
+          [
+            "get",
+            "subclass"
+          ],
+          "ice_shelf"
+        ]
+      ],
+      "paint": {
+        "fill-color": "hsl(0,0%,98%)",
+        "fill-opacity": 0.7
+      }
+    },
+    {
+      "id": "ul-landcover_glacier",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "landcover",
+      "maxzoom": 8,
+      "filter": [
+        "all",
+        [
+          "match",
+          [
+            "geometry-type"
+          ],
+          [
+            "MultiPolygon",
+            "Polygon"
+          ],
+          true,
+          false
+        ],
+        [
+          "==",
+          [
+            "get",
+            "subclass"
+          ],
+          "glacier"
+        ]
+      ],
+      "paint": {
+        "fill-color": "hsl(0,0%,98%)",
+        "fill-opacity": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          0,
+          1,
+          8,
+          0.5
+        ]
+      }
+    },
+    {
+      "id": "ul-landuse_residential",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "landuse",
+      "maxzoom": 16,
+      "filter": [
+        "all",
+        [
+          "match",
+          [
+            "geometry-type"
+          ],
+          [
+            "MultiPolygon",
+            "Polygon"
+          ],
+          true,
+          false
+        ],
+        [
+          "==",
+          [
+            "get",
+            "class"
+          ],
+          "residential"
+        ]
+      ],
+      "paint": {
+        "fill-color": "rgb(234, 234, 230)",
+        "fill-opacity": [
+          "interpolate",
+          [
+            "exponential",
+            0.6
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          0.8,
+          9,
+          0.6
+        ]
+      }
+    },
+    {
+      "id": "ul-landcover_wood",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "landcover",
+      "minzoom": 10,
+      "filter": [
+        "all",
+        [
+          "match",
+          [
+            "geometry-type"
+          ],
+          [
+            "MultiPolygon",
+            "Polygon"
+          ],
+          true,
+          false
+        ],
+        [
+          "==",
+          [
+            "get",
+            "class"
+          ],
+          "wood"
+        ]
+      ],
+      "paint": {
+        "fill-color": "rgb(220,224,220)",
+        "fill-opacity": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          8,
+          0,
+          12,
+          1
+        ]
+      }
+    },
+    {
+      "id": "ul-building",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "building",
+      "minzoom": 12,
+      "paint": {
+        "fill-antialias": true,
+        "fill-color": "rgb(234, 234, 229)",
+        "fill-outline-color": "rgb(219, 219, 218)"
+      }
+    },
+    {
+      "id": "ul-aeroway-area",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "aeroway",
+      "minzoom": 4,
+      "filter": [
+        "all",
+        [
+          "match",
+          [
+            "geometry-type"
+          ],
+          [
+            "MultiPolygon",
+            "Polygon"
+          ],
+          true,
+          false
+        ],
+        [
+          "match",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "runway",
+            "taxiway"
+          ],
+          true,
+          false
+        ]
+      ],
+      "paint": {
+        "fill-color": "rgba(255, 255, 255, 1)",
+        "fill-opacity": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          13,
+          0,
+          14,
+          1
+        ]
+      }
+    },
+    {
+      "id": "ul-road_area_pier",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "transportation",
+      "filter": [
+        "all",
+        [
+          "match",
+          [
+            "geometry-type"
+          ],
+          [
+            "MultiPolygon",
+            "Polygon"
+          ],
+          true,
+          false
+        ],
+        [
+          "==",
+          [
+            "get",
+            "class"
+          ],
+          "pier"
+        ]
+      ],
+      "paint": {
+        "fill-antialias": true,
+        "fill-color": "rgb(242,243,240)"
+      }
+    }
+  ]
+}

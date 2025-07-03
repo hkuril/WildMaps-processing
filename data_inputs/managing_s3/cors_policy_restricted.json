@@ -1,0 +1,22 @@
+[
+    {
+        "AllowedHeaders": [
+            "*"
+        ],
+        "AllowedMethods": [
+            "GET"
+        ],
+        "AllowedOrigins": [
+            "http://localhost:5173",
+            "https://localhost:5173",
+            "http://demo.hkuril.com",
+            "https://demo.hkuril.com"
+        ],
+        "ExposeHeaders": [
+            "Content-Encoding",
+            "Content-Length",
+            "Content-Type"
+        ],
+        "MaxAgeSeconds": 3000
+    }
+]

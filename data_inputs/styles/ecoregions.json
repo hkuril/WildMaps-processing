@@ -1,0 +1,37 @@
+{
+  "version": 8,
+  "name": "Ecoregions",
+  "sources": {
+    "ecoregions": {
+      "type": "vector",
+      "tiles": [
+        "https://wildcru-wildmaps.s3.eu-west-2.amazonaws.com/data_outputs/vector_tiles/ecoregions/Ecoregions2017/ecoregions_10/{z}/{x}/{y}.pbf"
+      ],
+      "minzoom": 0,
+      "maxzoom": 10 
+    }
+  },
+  "layers": [
+    {
+      "id": "ecoregions-fill",
+      "type": "fill",
+      "source": "ecoregions",
+      "source-layer": "ecoregions",
+      "paint": {
+        "fill-color": ["get", "COLOR_BIO"],
+        "fill-opacity": 1.0,
+        "fill-outline-color": ["get", "COLOR_BIO"]
+      }
+    },
+    {
+      "id": "ecoregions-outline",
+      "type": "line",
+      "source": "ecoregions",
+      "source-layer": "ecoregions",
+      "paint": {
+        "line-color": ["get", "COLOR_BIO"],
+        "line-width": 1.5
+      }
+    }
+  ]
+}

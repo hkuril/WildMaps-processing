@@ -1,0 +1,22 @@
+{
+  "version": 8,
+  "sources": {
+    "worldpop": {
+      "type": "raster",
+      "tiles": ["https://wildcru-wildmaps.s3.eu-west-2.amazonaws.com/data_outputs/raster_tiles/population/worldpop_auto/{z}/{x}/{y}.png"],
+      "tileSize": 256,
+      "minzoom": 0,
+      "maxzoom": 7 
+    }
+  },
+  "layers": [
+    {
+      "id": "population-density",
+      "type": "raster",
+      "source": "worldpop",
+      "paint": {
+        "raster-opacity": 1.0 
+      }
+    }
+  ]
+}

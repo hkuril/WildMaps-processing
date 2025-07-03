@@ -1,0 +1,24 @@
+﻿code,un_level,lc_class,definition,r,g,b
+0,-,No input data available,-,40,40,40
+111,A12A3A10B2D2E1,"Closed forest, evergreen needle leaf","tree canopy >70 %, almost all needle leaf trees remain green all year. Canopy is never without green foliage.",88,72,31
+113,A12A3A10B2D2E2,"Closed forest, deciduous needle leaf","tree canopy >70 %, consists of seasonal needle leaf tree communities with an annual cycle of leaf-on and leaf-off periods",112,102,62
+112,A12A3A10B2D1E1,"Closed forest, evergreen, broad leaf","tree canopy >70 %, almost all broadleaf trees remain green year round. Canopy is never without green foliage.",0,153,0
+114,A12A3A10B2D1E2,"Closed forest, deciduous broad leaf","tree canopy >70 %, consists of seasonal broadleaf tree communities with an annual cycle of leaf-on and leaf-off periods.",0,204,0
+115,A12A3A10,"Closed forest, mixed","Closed forest, mix of types",78,117,31
+116,A12A3A10,"Closed forest, unknown","Closed forest, not matching any of the other definitions",0,120,0
+121,A12A3A11B2D2E1,"Open forest, evergreen needle leaf","top layer- trees 15-70 % and second layer- mixed of shrubs and grassland, almost all needle leaf trees remain green all year. Canopy is never without green foliage.",102,96,0
+123,A12A3A11B2D2E2,"Open forest, deciduous needle leaf","top layer- trees 15-70 % and second layer- mixed of shrubs and grassland, consists of seasonal needle leaf tree communities with an annual cycle of leaf-on and leaf-off periods",141,116,0
+122,A12A3A11B2D1E1,"Open forest, evergreen broad leaf","top layer- trees 15-70 % and second layer- mixed of shrubs and grassland, almost all broadleaf trees remain green year round. Canopy is never without green foliage.",141,180,0
+124,A12A3A11B2D1E2,"Open forest, deciduous broad leaf","top layer- trees 15-70 % and second layer- mixed of shrubs and grassland, consists of seasonal broadleaf tree communities with an annual cycle of leaf-on and leaf-off periods.",160,220,0
+125,A12A3A12,"Open forest, mixed","Open forest, mix of types",146,153,0
+126,A12A3A12,"Open forest, unknown","Open forest, not matching any of the other definitions",100,140,0
+20,A12A4A20B3(B9),Shrubs,These are woody perennial plants with persistent and woody stems and without any defined main stem being less than 5 m tall. The shrub foliage can be either evergreen or deciduous.,255,187,34
+30,A12A2(A6)A20B4,Herbaceous vegetation,Plants without persistent stem or shoots above ground and lacking definite firm structure. Tree and shrub cover is less than 10 %.,255,255,76
+90,A24A2A20,Herbaceous wetland,"Lands with a permanent mixture of water and herbaceous or woody vegetation. The vegetation can be present in either salt, brackish, or fresh water.",0,150,160
+100,A12A7,Moss and lichen,Moss and lichen,250,230,160
+60,B16A1(A2),Bare / sparse vegetation,"Lands with exposed soil, sand, or rocks and never has more than 10 % vegetated cover during any time of the year",180,180,180
+40,A11A3,Cultivated and managed vegetation/agriculture (cropland),"Lands covered with temporary crops followed by harvest and a bare soil period (e.g., single and multiple cropping systems). Note that perennial woody crops will be classified as the appropriate forest or shrub land cover type.",240,150,255
+50,B15A1,Urban / built up,Land covered by buildings and other man- made structures,250,0,0
+70,B28A2(A3),Snow and Ice,Lands under snow or ice cover throughout the year.,240,240,240
+80,B28A1B1,Permanent water bodies,"lakes, reservoirs, and rivers. Can be either fresh or salt-water bodies.",0,50,200
+200,B28A1B11,Open sea,"Oceans, seas. Can be either fresh or salt- water bodies.",0,0,128

@@ -1,0 +1,12 @@
+name: WildMaps-processing
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - gdal
+  - rasterio
+  - geopandas
+  - fiona
+  - tqdm
+  - boto3

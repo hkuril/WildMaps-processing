@@ -1,0 +1,56 @@
+{
+  "version": 8,
+  "sources": {
+    "mapzen-terrarium": {
+      "type": "raster-dem",
+      "tiles": ["https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png"],
+      "encoding": "terrarium",
+      "tileSize": 256,
+      "maxzoom": 15
+    }
+  },
+  "layers": [
+    {
+      "id": "elevation-hypsometric",
+      "type": "color-relief",
+      "source": "mapzen-terrarium",
+      "paint": {
+        "color-relief-color": [
+          "interpolate",
+          ["linear"],
+          ["elevation"],
+          -11000, "rgb(30, 58, 138)",
+          -8000, "rgb(30, 64, 175)",
+          -5000, "rgb(59, 130, 246)",
+          -2000, "rgb(96, 165, 250)",
+          -500, "rgb(147, 197, 253)",
+		  -1, "rgb(243, 249, 255)",
+          0, "rgb(34, 197, 94)",
+          200, "rgb(101, 163, 13)",
+          500, "rgb(163, 163, 163)",
+          1000, "rgb(212, 165, 116)",
+          2000, "rgb(202, 138, 4)",
+          3000, "rgb(234, 179, 8)",
+          4000, "rgb(245, 158, 11)",
+          5000, "rgb(220, 38, 38)",
+          6000, "rgb(185, 28, 28)",
+          8000, "rgb(255, 255, 255)"
+        ]
+      }
+    },
+    {
+      "id": "hillshade",
+      "type": "hillshade",
+      "source": "mapzen-terrarium",
+      "paint": {
+        "hillshade-method": "standard",
+        "hillshade-illumination-altitude": 45,
+        "hillshade-illumination-direction": 315,
+        "hillshade-shadow-color": "#000000",
+        "hillshade-highlight-color": "#FFFFFF",
+        "hillshade-accent-color": "#000000",
+        "hillshade-exaggeration": 0.5
+      }
+    }
+  ]
+}

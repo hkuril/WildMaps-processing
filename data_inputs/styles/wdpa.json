@@ -1,0 +1,26 @@
+{
+  "version": 8,
+  "name": "WDPA Protected Areas",
+  "sources": {
+    "wdpa": {
+      "type": "vector",
+      "tiles": [
+        "https://wildcru-wildmaps.s3.eu-west-2.amazonaws.com/data_outputs/vector_tiles/protected_areas/WDPA/wdpa_10/{z}/{x}/{y}.pbf"
+      ],
+      "minzoom": 0,
+      "maxzoom": 10
+    }
+  },
+  "layers": [
+    {
+      "id": "wdpa-outline",
+      "type": "line",
+      "source": "wdpa",
+      "source-layer": "wdpa",
+      "paint": {
+        "line-color": "#ff0000",
+        "line-width": 2
+      }
+    }
+  ]
+}
