@@ -268,7 +268,7 @@ For multi-band rasters, this specifies which band contains the SDM which you wan
 
 #### Column `scale_factor`
 
-This column is ignored and will be deleted in a future release. Just put 1.
+This column is not used in the analysis, but it is used on the website to display the appropriate limits for the colour scale bar. Sometimes the raster values are scaled (usually to allow a more efficient file type) by a number. If that is the case, put the scale factor here. Otherwise, put 1.0. If you don’t understand have a look at the [Burns et al. (2025)](https://zenodo.org/records/15231415) dataset, which uses a scale factor of 10,000.
 
 #### Column `overwrite`
 
@@ -311,7 +311,7 @@ It will loop through all the datasets in the catalog. It will perform two main s
 
 ### Updating metadata
 
-You can update any of these columns at a later date: `source_link`, `source_contact`, `source_text`, `download_link`, like so:
+You can update any of these columns at a later date: `source_link`, `source_contact`, `source_text`, `download_link`, and `scale_factor`, like so:
 
  1. Get latest version of catalog:
 ```

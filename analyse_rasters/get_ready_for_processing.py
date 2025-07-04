@@ -29,6 +29,8 @@ def get_ready_wrapper(dir_base):
     # Sync catalogs.
     catalog = sync_catalogs(path_catalog, catalog_remote, catalog_local)
 
+    print(catalog['source_contact'])
+
     # Define paths for admin polygons and protected areas.
     path_adm0, path_adm1, path_PA_gpkg, path_landuse =\
             define_dataset_paths(dir_data)
@@ -38,7 +40,7 @@ def get_ready_wrapper(dir_base):
     metadata_keys_to_use = ['folder', 'input_file_name',
                             'common_name', 'region', 'subregion',
                             'source_link', 'source_text', 'download_link',
-                            'source_contact',
+                            'source_contact', 'scale_factor',
                             'band']
 
     return (dir_data, dir_output, catalog, 

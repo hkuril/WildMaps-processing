@@ -31,9 +31,15 @@ def main():
     logging.info(json.dumps(results, indent=2, cls = custom_JSON_encoder))
 
     metadata_columns_to_update = ['source_link', 'source_contact',
-                                  'source_text', 'download_link']
+                                  'source_text', 'download_link',
+                                  'scale_factor']
+    
+    #import pandas as pd
+    #with pd.option_context('display.max_rows', None):
+    #    print(catalog[['source_contact']])
     # Loop through all the datasets in the catalog.
     for dataset_name, dataset in catalog.iterrows():
+
         
         # Skip datasets that are set to ignore.
         if dataset['ignore'] == 'yes':
@@ -41,8 +47,12 @@ def main():
 
         for metadata_col in metadata_columns_to_update:
 
+            if dataset_name == 'chrishen_Borneo_Sunda_pangolin':
+                print(dataset_name, metadata_col, dataset[metadata_col])
             results[dataset_name][metadata_col] =\
                 dataset[metadata_col]
+    
+    #print(results['chrishen_Borneo_Sunda_pangolin']['source_contact'])
     
     logging.info('After update:')
     logging.info(json.dumps(results, indent=2, cls = custom_JSON_encoder))
