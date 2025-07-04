@@ -18,6 +18,7 @@ old/
 # !foo/bar/.gitkeep
 # This is because git doesn’t traverse ignored directories, but also doesn’t
 # track empty directories.
+data_inputs/website_assets/*
 data_inputs/catalogs/dataset_catalog.csv
 data_inputs/raster/*
 #
