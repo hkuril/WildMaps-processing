@@ -38,6 +38,7 @@ def get_ready_wrapper(dir_base):
     metadata_keys_to_use = ['folder', 'input_file_name',
                             'common_name', 'region', 'subregion',
                             'source_link', 'source_text', 'download_link',
+                            'source_contact',
                             'band']
 
     return (dir_data, dir_output, catalog, 

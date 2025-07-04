@@ -308,3 +308,18 @@ It will loop through all the datasets in the catalog. It will perform two main s
 
  * Analysis of the SDM (binning by suitability-PAs and by suitability–land use), including for various sub regions (national and sub-national). The results are saved as JSON files in `data_outputs/raster_analysis`.
  * Generation of tiles for web map visualisation. The results are saved in `data_outputs/raster_tiles/SDM`.
+
+### Updating metadata
+
+You can update any of these columns at a later date: `source_link`, `source_contact`, `source_text`, `download_link`, like so:
+
+ 1. Get latest version of catalog:
+```
+python3 interact_with_aws/get_catalog_file.py --overwrite
+```
+ 2. Change the values in the catalog (do not update any other columns not listed above!).
+ 3. Send the updates to AWS:
+ ```
+ python3 interact_with_aws/update_metadata.py
+ ```
+ 

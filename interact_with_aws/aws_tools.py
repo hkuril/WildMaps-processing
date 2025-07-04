@@ -1,4 +1,5 @@
 import logging 
+import json
 import os
 import tempfile
 
@@ -331,3 +332,20 @@ def clear_s3_directory(bucket, prefix):
     except Exception as e:
         print(f"Error clearing S3 directory: {e}")
         raise
+
+def write_json_and_upload_to_s3(dict_, path_, encoder = None):
+
+    # Save the results as a JSON file.
+    logging.info("Saving to {:}".format(path_))
+    #
+    try:
+        with open(path_, "w") as f:
+            json.dump(dict_, f, indent=2, cls = encoder)
+    except:
+        logging.info(dict_)
+        raise
+
+    # Copy to S3.
+    upload_file_to_aws(path_, overwrite = True)
+
+    return

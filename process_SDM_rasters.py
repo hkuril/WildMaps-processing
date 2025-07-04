@@ -28,7 +28,9 @@ from analyse_rasters.save_admin_boundary_metadata import (
 from interact_with_aws.aws_tools import (
         check_if_file_exists_on_aws,
         download_and_parse_aws,
-        upload_file_to_aws)
+        upload_file_to_aws,
+        write_json_and_upload_to_s3,
+        )
 
 def old_imports():
     ## Import modules from the standard library.
@@ -117,26 +119,12 @@ def find_intersections_and_do_binning_for_all_rasters(
             
             results[metadata_key] = dataset[metadata_key]
 
-        write_json_and_upload_to_s3(results, path_dataset_results)
+        write_json_and_upload_to_s3(results, path_dataset_results,
+                                    encoder = custom_JSON_encoder)
 
     return
 
-def write_json_and_upload_to_s3(dict_, path_):
 
-    # Save the results as a JSON file.
-    logging.info("Saving to {:}".format(path_))
-    #
-    try:
-        with open(path_, "w") as f:
-            json.dump(dict_, f, indent=2, cls = custom_JSON_encoder)
-    except:
-        logging.info(dict_)
-        raise
-
-    # Copy to S3.
-    upload_file_to_aws(path_, overwrite = True)
-
-    return
 
 def find_intersections_and_do_binning_for_one_raster(dir_data, path_adm0,
         path_adm1, path_PA_gpkg, path_landuse, raster_subfolder,
@@ -275,7 +263,8 @@ def write_dataset_summary_file(dir_output, results):
     # Save the results as a JSON file.
     path_summary = os.path.join(dir_output, 'raster_analysis',
                                         'results_summary.json')
-    write_json_and_upload_to_s3(results_summary, path_summary)
+    write_json_and_upload_to_s3(results_summary, path_summary,
+                                encoder = custom_JSON_encoder)
 
     return
 
