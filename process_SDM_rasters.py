@@ -124,8 +124,6 @@ def find_intersections_and_do_binning_for_all_rasters(
 
     return
 
-
-
 def find_intersections_and_do_binning_for_one_raster(dir_data, path_adm0,
         path_adm1, path_PA_gpkg, path_landuse, raster_subfolder,
         raster_file_name,

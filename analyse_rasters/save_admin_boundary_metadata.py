@@ -82,10 +82,16 @@ def generate_admin_boundary_json(path_adm0, path_adm1, adm0_list, adm1_list):
         row = gdf_adm0.loc[iso3]
         # Get bounding box from geometry
         bounds = row.geometry.bounds  # returns (minx, miny, maxx, maxy)
+
+        if (row['shapeType'] != 'ADM0'):
+            is_disputed = 'yes'
+        else:
+            is_disputed = 'no'
         
         adm_dict['adm0'][iso3] = {
-            'name': row['name'],
-            'bbox': [bounds[0], bounds[1], bounds[2], bounds[3]]  # [lon_min, lat_min, lon_max, lat_max]
+            'name': fix_mojibake_encoding(row['name']),
+            'bbox': [bounds[0], bounds[1], bounds[2], bounds[3]],  # [lon_min, lat_min, lon_max, lat_max]
+            'is_disputed' : is_disputed,
         }
 
     for adm1_code in adm1_list:
@@ -94,9 +100,63 @@ def generate_admin_boundary_json(path_adm0, path_adm1, adm0_list, adm1_list):
         bounds = row.geometry.bounds  # returns (minx, miny, maxx, maxy)
         
         adm_dict['adm1'][adm1_code] = {
-            'name': row['name'],
+            'name': fix_mojibake_encoding(row['name']),
             'adm0_iso3': row['adm0_iso3'],
             'bbox': [bounds[0], bounds[1], bounds[2], bounds[3]]  # [lon_min, lat_min, lon_max, lat_max]
         }
 
     return adm_dict
+
+def fix_mojibake(text):
+    """
+    Fix mojibake in a single string
+
+    Args:
+        text (str): String with mojibake patterns
+
+    Returns:
+        str: Fixed string with proper UTF-8 characters
+    """
+    if not isinstance(text, str):
+        return text
+
+    # Method 1: Direct replacement (fastest for known patterns)
+    replacements = {
+        'Ã³': 'ó',  # RegiÃ³n → Región
+        'Ã¡': 'á',  # TarapacÃ¡ → Tarapacá
+        'Ã©': 'é',  # café → café
+        'Ã±': 'ñ',  # España → España
+        'Ãº': 'ú',  # Perú → Perú
+        'Ã­': 'í',  # México → México
+        'Ã ': 'à',  # là → là
+        'Ã¨': 'è',  # très → très
+        'Ã¬': 'ì',  # così → così
+        'Ã²': 'ò',  # però → però
+        'Ã¹': 'ù',  # più → più
+        'Ã§': 'ç',  # français → français
+        'Ã¼': 'ü',  # über → über
+        'Ã¶': 'ö',  # schön → schön
+        'Ã¤': 'ä',  # mädchen → mädchen
+    }
+
+    for mojibake, correct in replacements.items():
+        text = text.replace(mojibake, correct)
+
+    return text
+
+def fix_mojibake_encoding(text):
+    """
+    Fix mojibake using encoding conversion
+
+    Args:
+        text (str): String with mojibake patterns
+
+    Returns:
+        str: Fixed string
+    """
+    try:
+        # Try to encode as Latin-1 then decode as UTF-8
+        return text.encode('latin-1').decode('utf-8')
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        # If that fails, fall back to direct replacement
+        return fix_mojibake(text)
