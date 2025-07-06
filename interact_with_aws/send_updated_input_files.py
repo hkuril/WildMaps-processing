@@ -35,10 +35,13 @@ def main():
         paths.append(path_)
 
     paths.append(os.path.join(dir_colour_ramps, 'un_lcc_color_scheme.csv'))
+    paths.append(os.path.join(dir_data_inputs, 'website_assets', 'splash_page_animation.mp4'))
+    paths.append(os.path.join(dir_data_inputs, 'website_assets', 'wildmaps_logo.png'))
     
     for path_ in paths:
         
-        upload_file_to_aws(path_, overwrite = True)
+        upload_file_to_aws(path_, overwrite = True,
+                           auto_headers = True)
 
     return
 

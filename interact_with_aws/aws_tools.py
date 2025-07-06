@@ -1,6 +1,8 @@
 import logging 
+import mimetypes
 import json
 import os
+from pathlib import Path
 import tempfile
 
 import boto3
@@ -9,6 +11,7 @@ from tqdm import tqdm
 
 AWS_PROFILE_NAME = "WildMapsMaintainer"
 AWS_BUCKET = "wildcru-wildmaps"
+
 
 def download_file_from_aws(local_path, bucket = None, key = None, overwrite=False):
     """
@@ -58,31 +61,205 @@ def download_file_from_aws(local_path, bucket = None, key = None, overwrite=Fals
         logging.error(f"Unexpected error: {e}")
         return False
 
-def upload_file_to_aws(local_path, bucket=None, key=None, overwrite=False, headers=None):
+def get_default_headers_for_file(file_path):
+    """
+    Get default headers based on file extension.
+
+    Args:
+        file_path (str): Path to the file
+
+    Returns:
+        dict: Dictionary of default headers
+    """
+    headers = {}
+
+    # Get file extension
+    file_extension = Path(file_path).suffix.lower()
+
+    # Guess MIME type
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if mime_type:
+        headers['Content-Type'] = mime_type
+
+    # Extension-specific headers
+    extension_headers = {
+        # Web assets
+        '.css': {
+            'Content-Type': 'text/css',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.js': {
+            'Content-Type': 'application/javascript',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.html': {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600'  # 1 hour
+        },
+        '.htm': {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600'  # 1 hour
+        },
+
+        # Images
+        '.jpg': {
+            'Content-Type': 'image/jpeg',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.jpeg': {
+            'Content-Type': 'image/jpeg',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.png': {
+            'Content-Type': 'image/png',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.gif': {
+            'Content-Type': 'image/gif',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.svg': {
+            'Content-Type': 'image/svg+xml',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.webp': {
+            'Content-Type': 'image/webp',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.ico': {
+            'Content-Type': 'image/x-icon',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+
+        # Fonts
+        '.woff': {
+            'Content-Type': 'font/woff',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.woff2': {
+            'Content-Type': 'font/woff2',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.ttf': {
+            'Content-Type': 'font/ttf',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.otf': {
+            'Content-Type': 'font/otf',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+
+        # Documents
+        '.pdf': {
+            'Content-Type': 'application/pdf',
+            'Cache-Control': 'public, max-age=86400'  # 1 day
+        },
+        '.doc': {
+            'Content-Type': 'application/msword',
+            'Cache-Control': 'public, max-age=86400'  # 1 day
+        },
+        '.docx': {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'Cache-Control': 'public, max-age=86400'  # 1 day
+        },
+        '.xls': {
+            'Content-Type': 'application/vnd.ms-excel',
+            'Cache-Control': 'public, max-age=86400'  # 1 day
+        },
+        '.xlsx': {
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Cache-Control': 'public, max-age=86400'  # 1 day
+        },
+
+        # Data formats
+        '.json': {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=3600'  # 1 hour
+        },
+        '.xml': {
+            'Content-Type': 'application/xml',
+            'Cache-Control': 'public, max-age=3600'  # 1 hour
+        },
+        '.csv': {
+            'Content-Type': 'text/csv',
+            'Cache-Control': 'public, max-age=3600'  # 1 hour
+        },
+        '.txt': {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600'  # 1 hour
+        },
+
+        # Video
+        '.mp4': {
+            'Content-Type': 'video/mp4',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.webm': {
+            'Content-Type': 'video/webm',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+
+        # Audio
+        '.mp3': {
+            'Content-Type': 'audio/mpeg',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.wav': {
+            'Content-Type': 'audio/wav',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+        '.ogg': {
+            'Content-Type': 'audio/ogg',
+            'Cache-Control': 'public, max-age=31536000'  # 1 year
+        },
+
+        # Archives
+        '.zip': {
+            'Content-Type': 'application/zip',
+            'Cache-Control': 'public, max-age=86400'  # 1 day
+        },
+        '.gz': {
+            'Content-Type': 'application/gzip',
+            'Cache-Control': 'public, max-age=86400'  # 1 day
+        },
+        '.tar': {
+            'Content-Type': 'application/x-tar',
+            'Cache-Control': 'public, max-age=86400'  # 1 day
+        }
+    }
+
+    # Apply extension-specific headers
+    if file_extension in extension_headers:
+        headers.update(extension_headers[file_extension])
+
+    return headers
+
+def upload_file_to_aws(local_path, bucket=None, key=None, overwrite=False, headers=None, auto_headers=False):
     """
     Upload a file from local path to S3.
-    
+
     Args:
         local_path (str): Local file path to upload
         bucket (str): S3 bucket name
         key (str): S3 object key (destination path in S3)
         overwrite (bool): Whether to overwrite existing S3 object
         headers (dict): Optional headers to set on the S3 object (e.g., {'Content-Type': 'text/css'})
+        auto_headers (bool): Whether to automatically add headers based on file extension
     """
     if bucket is None:
         bucket = AWS_BUCKET
     if key is None:
         key = local_path
-    
+
     # Check if local file exists
     if not os.path.exists(local_path):
         logging.error(f"**Local file does not exist: {local_path}**")
         return False
-    
+
     # Initialize S3 client with profile
     session = boto3.Session(profile_name=AWS_PROFILE_NAME)
     s3 = session.client('s3')
-    
+
     # Check if S3 object already exists (if overwrite is False)
     if not overwrite:
         try:
@@ -97,16 +274,27 @@ def upload_file_to_aws(local_path, bucket=None, key=None, overwrite=False, heade
             else:
                 logging.error(f"Error checking S3 object: {e}")
                 return False
-    
+
     try:
         logging.info(f"Uploading {local_path} to s3://{bucket}/{key}")
-        
+
+        # Start with auto-detected headers if enabled
+        final_headers = {}
+        if auto_headers:
+            final_headers = get_default_headers_for_file(local_path)
+            logging.debug(f"Auto-detected headers: {final_headers}")
+
+        # Merge with user-provided headers (user headers take precedence)
+        if headers:
+            final_headers.update(headers)
+            logging.debug(f"Final headers after merge: {final_headers}")
+
         # Prepare extra arguments for upload
         extra_args = {}
-        if headers:
+        if final_headers:
             # Convert headers to the format expected by S3
             metadata = {}
-            for key_name, value in headers.items():
+            for key_name, value in final_headers.items():
                 if key_name.lower() == 'content-type':
                     extra_args['ContentType'] = value
                 elif key_name.lower() == 'cache-control':
@@ -120,16 +308,16 @@ def upload_file_to_aws(local_path, bucket=None, key=None, overwrite=False, heade
                 else:
                     # For custom metadata, prefix with 'x-amz-meta-'
                     metadata[key_name] = value
-            
+
             if metadata:
                 extra_args['Metadata'] = metadata
-        
+
         # Upload with extra arguments if provided
         if extra_args:
             s3.upload_file(Filename=local_path, Bucket=bucket, Key=key, ExtraArgs=extra_args)
         else:
             s3.upload_file(Filename=local_path, Bucket=bucket, Key=key)
-            
+
         logging.info("Upload complete.")
         return True
     except ClientError as e:

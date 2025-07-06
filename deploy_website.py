@@ -33,12 +33,25 @@ def deploy_website(aws_base_url="https://your-bucket.s3.amazonaws.com"):
         dist_source = '../WildMaps-website/dist/'
         dist_dest = 'website_dist/'
         
+        ## Remove existing website_dist if it exists
+        #if os.path.exists(dist_dest):
+        #    for item in os.listdir(dist_dest):
+        #        if item != '.gitkeep':
+        #            item_path = os.path.join(dist_dest, item)
+        #            if os.path.isdir(item_path):
+        #                shutil.rmtree(item_path)
+        #            else:
+        #                os.remove(item_path)
+
         # Remove existing website_dist if it exists
         if os.path.exists(dist_dest):
             shutil.rmtree(dist_dest)
         
         # Copy the entire dist directory
         shutil.copytree(dist_source, dist_dest)
+
+        gitkeep_path = Path(dist_dest) / ".gitkeep"
+        gitkeep_path.touch()
 
         # Step 3.5: Clear existing files on S3
         print("Clearing existing files on S3...")

@@ -323,3 +323,57 @@ python3 interact_with_aws/get_catalog_file.py --overwrite
  python3 interact_with_aws/update_metadata.py
  ```
  
+## Handover notes for Chrishen 06-July-2025
+
+### Fresh version of repo
+
+(Delete these notes once complete)
+ 
+I made a few final changes to the repo. To avoid any messiness, just get the latest version (overwrite the small changes we made on your machine when we were setting up):
+ 
+ ```
+git fetch origin
+git reset --hard origin/main
+ ```
+ 
+Get the latest version of the catalog:
+ 
+```
+python3 interact_with_aws/get_catalog_file.py --overwrite
+```
+
+Now you should be able to use the code normally.
+
+### Updating metadata
+
+Once you have author contact and download links for the SDMs that are already on the website, I added a function to update these. Scroll up to see 'Updating metadata' above.
+
+### Changing the AWS permissions
+
+Since we don’t know the final URL of the website (and to avoid blocking Shine), I’ve temporarily made the AWS files completely open—anybody could access them on their own website and you’d have to pay. It’s unlikely that this will happen. However, once you have a final URL it’s better to add the restrictions back. I made a script to do this:
+
+First update the 'bucket policy':
+
+```
+python3 interact_with_aws/change_policies.py bucket_policy data_inputs/managing_s3/bucket_policy_restricted.json
+```
+
+Then update the
+
+```
+python3 interact_with_aws/change_policies.py cors data_inputs/managing_s3/cors_policy_restricted.json 
+```
+
+For both of these commands, it’s simply updating a setting a file on AWS using a local config file. The config files are 
+
+```
+bucket_policy_restricted.json
+```
+
+and
+
+```
+cors_policy_restricted.json 
+```
+
+If you look at them, you’ll see they grant only a few sites use (`demo.hkuril.com`, `www.wildcru.org`, and `localhost:5173`). If you end up using a different domain, you’ll have to update both JSON files. Just upload the current versions to ChatGPT and tell it you need to update the Bucket Policy and CORS Policy files to allow an additional site permission.
